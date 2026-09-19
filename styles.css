@@ -1,8 +1,37 @@
 /* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
 
-.qk-modal {
-	min-width: 560px;
-	max-width: 760px;
+/* 右侧栏主页视图：窄容器下卡片改纵向（信息行在上、进度条在下） */
+.qk-view .qk-card-body {
+	flex-direction: column;
+	gap: 10px;
+}
+
+.qk-view .qk-info {
+	flex: none;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 4px 16px;
+	border-right: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 0 0 10px;
+}
+
+.qk-view .qk-info-row {
+	flex: 1 1 40%;
+}
+
+.qk-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	margin-top: 48px;
+	color: var(--text-muted);
+}
+
+.qk-empty-actions {
+	display: flex;
+	gap: 8px;
 }
 
 .qk-body {

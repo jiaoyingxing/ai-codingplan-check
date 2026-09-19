@@ -1,27 +1,37 @@
 import { Plugin } from "obsidian";
-import { QuotaModal } from "./modal";
-import { QuotaSettingTab } from "./settings";
+import { QuotaSettingTab, AccountModal } from "./settings";
 import { STR } from "./strings";
+import { VIEW_TYPE_QUOTA_PANEL, QuotaView } from "./view";
 import { DEFAULT_SETTINGS, type AccountRecord, type PluginSettings } from "./types";
 
-// 必须是 default 导出：Obsidian 宿主从 module.exports.default 取插件类，
-// 命名导出会在加载时报 "h is not a constructor"。
 export default class AiCodingplanCheckPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.registerView(VIEW_TYPE_QUOTA_PANEL, (leaf) => new QuotaView(leaf, this));
 		this.addSettingTab(new QuotaSettingTab(this.app, this));
-		this.addRibbonIcon("gauge", STR.ribbonTooltip, () => this.openPanel());
+		this.addRibbonIcon("gauge", STR.ribbonTooltip, () => void this.activateView());
 		this.addCommand({
 			id: "open-quota-panel",
 			name: STR.commandOpen,
-			callback: () => this.openPanel(),
+			callback: () => void this.activateView(),
 		});
 	}
 
-	openPanel(): void {
-		new QuotaModal(this.app, this).open();
+	/** 打开/聚焦额度面板主页（右侧栏常驻视图；已存在则聚焦，不叠开）。 */
+	async activateView(): Promise<void> {
+		const { workspace } = this.app;
+		const existing = workspace.getLeavesOfType(VIEW_TYPE_QUOTA_PANEL);
+		const leaf = existing.length > 0 ? existing[0] : workspace.getRightLeaf(false);
+		if (!leaf) return;
+		await leaf.setViewState({ type: VIEW_TYPE_QUOTA_PANEL, active: true });
+		await workspace.revealLeaf(leaf);
+	}
+
+	/** 添加/编辑账号共用入口（onSaved 供局部刷新回调）。 */
+	openAccountWizard(onSaved?: () => void): void {
+		new AccountModal(this.app, this, onSaved).open();
 	}
 
 	/** 设置窗口不在公开类型里，用窄类型投影访问（同 easy-sync openPluginSettings 惯例）。 */

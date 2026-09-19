@@ -1,73 +1,77 @@
-import { App, Modal, Setting } from "obsidian";
+import { ItemView, WorkspaceLeaf } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter } from "./adapters";
 import { STR } from "./strings";
 import { describeError } from "./settings";
 import type { AccountRecord, ProviderId, QuotaSnapshot } from "./types";
 
-/** 主面板：按 provider 分组的账号卡片，左栏套餐信息、右栏三条窗口进度条。 */
-export class QuotaModal extends Modal {
+export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
+
+/** 额度面板主页：右侧栏常驻视图，按 provider 分组的账号卡片（左信息右三进度条）。 */
+export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
 
-	constructor(app: App, plugin: AiCodingplanCheckPlugin) {
-		super(app);
+	constructor(leaf: WorkspaceLeaf, plugin: AiCodingplanCheckPlugin) {
+		super(leaf);
 		this.plugin = plugin;
 	}
 
-	onOpen(): void {
-		this.modalEl.addClass("qk-modal");
-		this.titleEl.setText(STR.panelTitle);
-		this.contentEl.empty();
-
-		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
-		if (accounts.length === 0) {
-			new Setting(this.contentEl).setName(STR.noAccounts).addButton((button) =>
-				button
-					.setButtonText(STR.openSettings)
-					.setCta()
-					.onClick(() => {
-						this.close();
-						this.plugin.openPluginSettings();
-					}),
-			);
-			return;
-		}
-
-		new Setting(this.contentEl)
-			.addButton((button) =>
-				button
-					.setIcon("refresh-cw")
-					.setTooltip(STR.refreshAll)
-					.onClick(() => {
-						this.renderAll(accounts);
-					}),
-			);
-
-		const body = this.contentEl.createDiv("qk-body");
-		this.renderAll(accounts, body);
+	getViewType(): string {
+		return VIEW_TYPE_QUOTA_PANEL;
 	}
 
-	private renderAll(accounts: AccountRecord[], body?: HTMLElement): void {
-		const container = body ?? this.contentEl.querySelector<HTMLElement>(".qk-body");
-		if (!container) return;
-		container.empty();
+	getDisplayText(): string {
+		return STR.panelTitle;
+	}
 
+	getIcon(): string {
+		return "gauge";
+	}
+
+	async onOpen(): Promise<void> {
+		this.contentEl.addClass("qk-view");
+		this.addAction("refresh-cw", STR.refreshAll, () => this.renderPanel());
+		this.renderPanel();
+	}
+
+	async onClose(): Promise<void> {}
+
+	/** 全量重绘（入口/全部刷新用）；单卡刷新走卡内按钮，不重建整板。 */
+	private renderPanel(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
+		if (accounts.length === 0) {
+			this.renderEmptyState();
+			return;
+		}
+		const body = contentEl.createDiv("qk-body");
 		const byProvider = new Map<ProviderId, AccountRecord[]>();
 		for (const account of accounts) {
 			const group = byProvider.get(account.provider) ?? [];
 			group.push(account);
 			byProvider.set(account.provider, group);
 		}
-
 		for (const [provider, group] of byProvider) {
 			const adapter = getAdapter(provider);
-			container.createDiv({ text: adapter?.label ?? provider, cls: "qk-group-title" });
+			body.createDiv({ text: adapter?.label ?? provider, cls: "qk-group-title" });
 			for (const account of group) {
-				const card = container.createDiv("qk-card");
+				const card = body.createDiv("qk-card");
 				card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
 				void this.fetchAndRender(account, card);
 			}
 		}
+	}
+
+	private renderEmptyState(): void {
+		const empty = this.contentEl.createDiv("qk-empty");
+		empty.createDiv({ text: STR.noAccounts, cls: "qk-empty-text" });
+		const actions = empty.createDiv("qk-empty-actions");
+		const addBtn = actions.createEl("button", { text: STR.addAccount });
+		addBtn.addClass("mod-cta");
+		addBtn.addEventListener("click", () => this.plugin.openAccountWizard(() => this.renderPanel()));
+		const settingsBtn = actions.createEl("button", { text: STR.openSettings });
+		settingsBtn.addEventListener("click", () => this.plugin.openPluginSettings());
 	}
 
 	private async fetchAndRender(account: AccountRecord, card: HTMLElement): Promise<void> {
@@ -91,15 +95,12 @@ export class QuotaModal extends Modal {
 		card.addClass("qk-card-error");
 		const head = card.createDiv("qk-card-head");
 		head.createDiv({ text: message, cls: "qk-card-error-text" });
-		head.createDiv("qk-card-actions").createDiv().createEl("button", { text: STR.refresh }).addEventListener(
-			"click",
-			() => {
-				card.removeClass("qk-card-error");
-				card.empty();
-				card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-				void this.fetchAndRender(account, card);
-			},
-		);
+		head.createDiv("qk-card-actions").createEl("button", { text: STR.refresh }).addEventListener("click", () => {
+			card.removeClass("qk-card-error");
+			card.empty();
+			card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+			void this.fetchAndRender(account, card);
+		});
 	}
 
 	private renderSnapshotCard(card: HTMLElement, account: AccountRecord, snapshot: QuotaSnapshot): void {
