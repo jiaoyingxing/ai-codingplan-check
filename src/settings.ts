@@ -128,7 +128,8 @@ export class AddAccountModal extends Modal {
 						try {
 							const snapshot = await adapter.fetchQuota(credential);
 							const id = crypto.randomUUID();
-							const secretId = `account:${id}`;
+							// SecretStorage ID 只允许小写字母/数字/破折号（冒号非法），用连字符前缀。
+							const secretId = `account-${id}`;
 							this.app.secretStorage.setSecret(secretId, credential);
 							this.plugin.settings.accounts.push({
 								id,

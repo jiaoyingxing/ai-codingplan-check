@@ -7,7 +7,7 @@ export interface AccountRecord {
 	id: string;
 	provider: ProviderId;
 	alias: string;
-	/** SecretStorage 中的 secret id，形如 `account:<id>`。 */
+	/** SecretStorage 中的 secret id，形如 `account-<id>`（ID 仅允许小写字母/数字/破折号）。 */
 	secretId: string;
 	enabled: boolean;
 }
