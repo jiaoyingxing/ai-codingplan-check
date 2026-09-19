@@ -1,6 +1,6 @@
 // 数据模型：账号 = 一份凭证 + 它查出的套餐快照（docs/core/PROJECT_CONTEXT.md）
 
-export type ProviderId = "opencode-go";
+export type ProviderId = "opencode-go" | "commandcode";
 
 /** data.json 里持久化的账号记录；凭证本体在 SecretStorage，不落 data.json。 */
 export interface AccountRecord {
