@@ -1,0 +1,170 @@
+/* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
+
+.qk-modal {
+	min-width: 560px;
+	max-width: 760px;
+}
+
+.qk-body {
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.qk-group-title {
+	margin: 14px 0 6px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+}
+
+.qk-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	padding: 12px 16px;
+	margin-bottom: 10px;
+}
+
+.qk-card-error {
+	border-color: var(--text-error);
+}
+
+.qk-card-loading {
+	color: var(--text-muted);
+}
+
+.qk-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.qk-card-title {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.qk-card-alias {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.qk-card-plan {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.qk-card-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.qk-captured {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.qk-card-error-text {
+	color: var(--text-error);
+}
+
+.qk-card-body {
+	display: flex;
+	gap: 20px;
+	align-items: stretch;
+}
+
+.qk-info {
+	flex: 0 0 34%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 6px;
+	border-right: 1px solid var(--background-modifier-border);
+	padding-right: 16px;
+}
+
+.qk-info-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: var(--font-ui-small);
+}
+
+.qk-info-key {
+	color: var(--text-muted);
+}
+
+.qk-info-value {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.qk-bars {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 10px;
+}
+
+.qk-window-line {
+	display: grid;
+	grid-template-columns: 64px 1fr 48px;
+	align-items: center;
+	gap: 10px;
+	font-size: var(--font-ui-small);
+}
+
+.qk-window-label {
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.qk-bar {
+	height: 8px;
+	background: var(--background-modifier-border);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.qk-bar-fill {
+	height: 100%;
+	border-radius: 4px;
+	background: var(--interactive-accent);
+}
+
+.qk-bar-fill.qk-warn {
+	background: var(--color-orange);
+}
+
+.qk-bar-fill.qk-crit {
+	background: var(--color-red);
+}
+
+.qk-window-pct {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.qk-window-reset {
+	margin: 2px 0 0 74px;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.qk-window-limited {
+	margin: 2px 0 0 74px;
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+}

@@ -1,0 +1,32 @@
+{
+  "name": "ai-codingplan-check",
+  "version": "0.1.0",
+  "description": "AI CodingPlan Check / AI编程套餐查询 — 查询 OpenCode Go、Command Code、火山方舟等 AI 编程订阅套餐的剩余额度",
+  "main": "main.js",
+  "scripts": {
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "build": "tsc -noEmit -skipLibCheck && esbuild src/main.ts --bundle --external:obsidian --external:https --format=cjs --target=es2020 --outfile=main.js",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "check:meta": "node C:/Users/jiaor/.codex/skills/obsidian-plugin-release-protection/scripts/check-metadata.mjs --project ."
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "quota",
+    "coding-plan"
+  ],
+  "author": "Jiao Yingxing",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "eslint": "9.39.5",
+    "eslint-plugin-obsidianmd": "0.4.2",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@types/node": "^26.1.0",
+    "obsidian": "1.13.1"
+  }
+}
