@@ -104,7 +104,6 @@ export class QuotaView extends ItemView {
 	}
 
 	private renderSnapshotCard(card: HTMLElement, account: AccountRecord, snapshot: QuotaSnapshot): void {
-		const adapter = getAdapter(account.provider);
 		card.empty();
 		const captured = new Date(snapshot.capturedAt).toLocaleTimeString();
 

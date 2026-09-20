@@ -43,18 +43,9 @@ export class QuotaSettingTab extends PluginSettingTab {
 		}
 		for (const account of accounts) {
 			const adapter = getAdapter(account.provider);
-			const describe = () => `${adapter?.label ?? account.provider} · ${account.enabled ? "已启用" : "已停用"}`;
 			group.addSetting((setting) => {
-				setting.setName(account.alias).setDesc(describe());
-				setting.addToggle((toggle) =>
-					toggle.setValue(account.enabled).onChange((value) => {
-						void (async () => {
-							account.enabled = value;
-							await this.plugin.saveSettings();
-							setting.setDesc(describe());
-						})();
-					}),
-				);
+				// 开关即状态显示，desc 只留厂商；控件顺序：编辑、删除、开关（用户拍板）。
+				setting.setName(account.alias).setDesc(adapter?.label ?? account.provider);
 				setting.addExtraButton((button) =>
 					button.setIcon("pencil").setTooltip(STR.edit).onClick(() => {
 						new AccountModal(this.app, this.plugin, () => this.renderAccounts(), account).open();
@@ -68,6 +59,14 @@ export class QuotaSettingTab extends PluginSettingTab {
 							this.app.secretStorage.setSecret(account.secretId, "");
 							await this.plugin.saveSettings();
 							this.renderAccounts();
+						})();
+					}),
+				);
+				setting.addToggle((toggle) =>
+					toggle.setValue(account.enabled).onChange((value) => {
+						void (async () => {
+							account.enabled = value;
+							await this.plugin.saveSettings();
 						})();
 					}),
 				);
@@ -129,6 +128,15 @@ export class AccountModal extends Modal {
 		};
 		refreshHint();
 		let credentialText: TextComponent | null = null;
+		let revealed = false;
+		// 眼睛在输入框左侧（用户拍板）：先注册 extra button 再注册输入框。
+		credentialSetting.addExtraButton((button) =>
+			button.setIcon("eye").setTooltip(STR.revealKey).onClick(() => {
+				revealed = !revealed;
+				if (credentialText) credentialText.inputEl.type = revealed ? "text" : "password";
+				button.setIcon(revealed ? "eye-off" : "eye");
+			}),
+		);
 		credentialSetting.addText((text) => {
 			credentialText = text;
 			text.inputEl.type = "password";
@@ -137,14 +145,6 @@ export class AccountModal extends Modal {
 				credential = value.trim();
 			});
 		});
-		let revealed = false;
-		credentialSetting.addExtraButton((button) =>
-			button.setIcon("eye").setTooltip(STR.revealKey).onClick(() => {
-				revealed = !revealed;
-				if (credentialText) credentialText.inputEl.type = revealed ? "text" : "password";
-				button.setIcon(revealed ? "eye-off" : "eye");
-			}),
-		);
 
 		new Setting(this.contentEl)
 			.addButton((button) => button.setButtonText(STR.wizardCancel).onClick(() => this.close()))
