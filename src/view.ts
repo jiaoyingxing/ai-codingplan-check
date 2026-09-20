@@ -292,16 +292,18 @@ export class QuotaView extends ItemView {
 			}
 			const windows = body.createDiv("qk-windows");
 			for (const window of snapshot.windows) {
-				const row = windows.createDiv("qk-window-row");
-				row.createDiv({ text: window.label, cls: "qk-window-label" });
-				const pct = formatPercent(window.usedPercent);
-				const bar = row.createDiv("qk-bar");
-				const fill = bar.createDiv("qk-bar-fill");
-				fill.setCssStyles({ width: `${pct}%` });
-				// 三家 API 原生都是"已用"口径，统一主题色（用户拍板：不加分档色）；百分比嵌条居中（用户拍板融合）。
-				const pctEl = bar.createDiv("qk-pct");
-				pctEl.createSpan({ text: pct, cls: "qk-pct-num" });
-				pctEl.createSpan({ text: "%", cls: "qk-pct-unit" });
+			const row = windows.createDiv("qk-window-row");
+			row.createDiv({ text: window.label, cls: "qk-window-label" });
+			const pct = formatPercent(window.usedPercent);
+			// 中间列包一层容器查询单元：列宽足够时百分比叠加在条上，窄到放不下时退化为只显示百分比（CSS 切换）。
+			const cell = row.createDiv("qk-bar-cell");
+			const bar = cell.createDiv("qk-bar");
+			const fill = bar.createDiv("qk-bar-fill");
+			fill.setCssStyles({ width: `${pct}%` });
+			// 三家 API 原生都是"已用"口径，统一主题色（用户拍板：不加分档色）；百分比嵌条居中（用户拍板融合）。
+			const pctEl = cell.createDiv("qk-pct");
+			pctEl.createSpan({ text: pct, cls: "qk-pct-num" });
+			pctEl.createSpan({ text: "%", cls: "qk-pct-unit" });
 				// 填充过半（≥60%）时文字整体落在主题色上，切换为反色保证可读。
 				if (window.usedPercent >= 60) pctEl.addClass("qk-pct-on-fill");
 				const reset = formatResetCountdown(window.resetsAt, Date.now(), true);

@@ -210,8 +210,13 @@ details[open] > .qk-row .qk-collapse-icon {
 	white-space: nowrap;
 }
 
-.qk-bar {
+.qk-bar-cell {
 	position: relative;
+	min-width: 0;
+	container-type: inline-size;
+}
+
+.qk-bar {
 	height: 22px;
 	background: var(--background-modifier-border);
 	/* 圆角收小（用户拍板：太圆），条与填充一致 */
@@ -235,7 +240,7 @@ details[open] > .qk-row .qk-collapse-icon {
 	white-space: nowrap;
 }
 
-.qk-bar .qk-pct {
+.qk-bar-cell > .qk-pct {
 	position: absolute;
 	inset: 0;
 	display: flex;
@@ -255,9 +260,31 @@ details[open] > .qk-row .qk-collapse-icon {
 	font-weight: 400;
 }
 
-.qk-bar .qk-pct-on-fill .qk-pct-unit {
+.qk-pct-on-fill .qk-pct-unit {
 	color: var(--text-on-accent);
 	opacity: 0.8;
+}
+
+/* 窄列退化（用户拍板）：条轨放不下百分比时只显示百分比，避免文字被裁或条瘦成针 */
+@container (max-width: 60px) {
+	.qk-bar {
+		display: none;
+	}
+
+	.qk-bar-cell > .qk-pct {
+		position: static;
+		justify-content: flex-end;
+	}
+
+	.qk-bar-cell > .qk-pct.qk-pct-on-fill,
+	.qk-bar-cell > .qk-pct.qk-pct-on-fill .qk-pct-unit {
+		color: var(--text-normal);
+		opacity: 1;
+	}
+
+	.qk-bar-cell > .qk-pct .qk-pct-unit {
+		color: var(--text-muted);
+	}
 }
 
 /* 重置列定宽：全部进度条等长（用户拍板避免参差），文本右对齐，超长兜底省略 */
