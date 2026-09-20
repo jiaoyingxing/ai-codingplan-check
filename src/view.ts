@@ -19,12 +19,15 @@ function providerLabel(account: AccountRecord): string {
 	return getAdapter(account.provider)?.label ?? account.provider;
 }
 
-/** 行总用量口径：单套餐取约束最紧窗口（最大已用）；
- *  多套餐（火山同凭证多订阅）暂以「剩余额度最多」为准：取已用最少窗口（用户拍板，待分组方案定稿后重议）。 */
+/** 行总用量口径（总额度 = 账单周期窗口，三家窗口序均为 …→月度/本期，取末位窗口）：
+ *  每个计划取其末位窗口已用；多套餐（火山同凭证多订阅）以剩余额度最多为准，
+ *  取该值最小的计划（用户拍板并实证：火山 Agent 月窗 35%，而非 5h 窗 0% 或周窗 100%）。 */
 function accountTotal(snapshots: QuotaSnapshot[]): number {
-	const percents = snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent));
-	if (percents.length === 0) return 0;
-	return snapshots.length > 1 ? Math.max(0, Math.min(...percents)) : Math.min(Math.max(...percents), 100);
+	const planPercents = snapshots
+		.filter((s) => s.windows.length > 0)
+		.map((s) => s.windows[s.windows.length - 1].usedPercent);
+	if (planPercents.length === 0) return 0;
+	return Math.max(0, Math.min(...planPercents, 100));
 }
 
 /** 额度面板主页：固定左侧栏（EasySync 口径）。账号折叠列表——
@@ -261,7 +264,7 @@ export class QuotaView extends ItemView {
 		// 行背景总进度条 + 行尾总%锚点，口径见 accountTotal。
 		const total = accountTotal(snapshots);
 		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
-		rowFill?.setCssStyles({ width: `${total}%` });
+		rowFill?.setCssStyles({ width: `${formatPercent(total)}%` });
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct) {
 			// 单账号刷新会重复进入本方法：先清空旧行尾数字再重填，否则百分比叠加显示。
