@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter } from "./adapters";
+import { formatPercent, formatResetCountdown } from "./format";
 import { STR } from "./strings";
 import { describeError } from "./settings";
 import type { AccountRecord, ProviderId, QuotaSnapshot } from "./types";
@@ -146,24 +147,16 @@ export class QuotaView extends ItemView {
 			const bar = line.createDiv("qk-bar");
 			const fill = bar.createDiv("qk-bar-fill");
 			// 三家 API 原生都是"已用"口径：条越满用得越多，颜色统一主题色（用户拍板：不加分档色）。
-			fill.style.width = `${Math.round(window.usedPercent)}%`;
-			line.createDiv({ text: `${Math.round(window.usedPercent)}%`, cls: "qk-window-pct" });
+			// 百分比是行内主锚点（用户拍板）：数字加重放大、单位缩小变灰；条宽与显示同值不再取整。
+			const pct = formatPercent(window.usedPercent);
+			fill.style.width = `${pct}%`;
+			const pctCell = line.createDiv("qk-window-pct");
+			pctCell.createSpan({ text: pct, cls: "qk-window-pct-num" });
+			pctCell.createSpan({ text: "%", cls: "qk-window-pct-unit" });
 
 			const reset = formatResetCountdown(window.resetsAt);
 			if (reset) block.createDiv({ text: reset, cls: "qk-window-reset" });
 			if (window.rateLimited) block.createDiv({ text: "已限速", cls: "qk-window-limited" });
 		}
 	}
-}
-
-/** 重置倒计时的人话格式：<1h → 分钟，<24h → 小时，否则天数。 */
-export function formatResetCountdown(resetsAt: number | null, now = Date.now()): string {
-	if (resetsAt === null) return "";
-	const diff = resetsAt - now;
-	if (diff <= 0) return "即将重置";
-	const minutes = Math.floor(diff / 60000);
-	if (minutes < 60) return `${minutes} 分钟后重置`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} 小时后重置`;
-	return `${Math.floor(hours / 24)} 天后重置`;
 }

@@ -84,7 +84,8 @@
 }
 
 .qk-card-alias {
-	font-weight: 600;
+	/* 账号身份降为次层（用户拍板）：行内主锚点让给百分比 */
+	font-weight: 500;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -154,7 +155,7 @@
 
 .qk-window-line {
 	display: grid;
-	grid-template-columns: 64px 1fr 48px;
+	grid-template-columns: 64px 1fr 56px;
 	align-items: center;
 	gap: 10px;
 	font-size: var(--font-ui-small);
@@ -178,9 +179,20 @@
 	background: var(--interactive-accent);
 }
 
+/* 百分比是行内主锚点（用户拍板）：放大加重跳出，右缘对齐保持垂直刻度线；单位缩小变灰 */
 .qk-window-pct {
 	text-align: right;
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
 	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.qk-window-pct-unit {
+	margin-left: 1px;
+	color: var(--text-muted);
+	font-size: 0.75em;
+	font-weight: 400;
 }
 
 .qk-window-reset {
