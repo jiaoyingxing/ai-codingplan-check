@@ -30,8 +30,9 @@ function accountTotal(snapshots: QuotaSnapshot[]): number {
 /** 额度面板主页：固定左侧栏（EasySync 口径）。账号折叠列表——
  *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，口径见 accountTotal）；
  *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
- *  页动作在 view 头部标签栏（addAction：刷新全部/排序 Menu/全部展开收起/打开设置），不随内容滚动；
- *  排序复用核心资源管理器模式（addAction + Menu 弹框勾选），快照缓存驱动额度/重置排序。 */
+ *  页动作在内容顶部 nav-header 固定工具行（刷新全部/排序 Menu/全部展开收起/打开设置），
+ *  列表在 .qk-scroll 内独立滚动（桌面侧栏 app.css 隐藏 .view-header，addAction 不可见）；
+ *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），快照缓存驱动额度/重置排序。 */
 export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
 	/** 账号折叠态（重绘与单账号刷新后保持；默认收起）。 */
@@ -62,25 +63,19 @@ export class QuotaView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass("qk-view");
-		// 页动作放 view 头部标签栏（核心资源管理器排序按钮同位）：不随内容滚动，无内容内重复入口。
-		this.addAction("refresh-cw", STR.refreshAll, () => this.renderPanel());
-		this.addAction("arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
-		this.addAction("chevrons-up-down", STR.toggleExpand, () => {
-			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
-			const target = items.some((item) => !item.open);
-			for (const item of items) item.open = target;
-		});
-		this.addAction("settings", STR.openSettings, () => this.plugin.openPluginSettings());
 		this.renderPanel();
 	}
 
 	async onClose(): Promise<void> {}
 
-	/** 全量重绘（入口/页头刷新用）；单账号刷新只重建其 details 内部，折叠态不丢。页面限宽居中，滚动权归 leaf。 */
+	/** 全量重绘（入口/页头刷新用）；单账号刷新只重建其 details 内部，折叠态不丢。
+	 *  布局同核心资源管理器：内容顶部 nav-header 固定工具行（不随滚动），列表在 .qk-scroll 内独立滚动
+	 *  ——桌面端 app.css 对侧栏 .view-header 直接 display:none，页动作只能放内容内。 */
 	private renderPanel(): void {
 		const { contentEl } = this;
 		contentEl.empty();
-		const page = contentEl.createDiv("qk-page");
+		this.renderToolbar(contentEl);
+		const page = contentEl.createDiv("qk-scroll").createDiv("qk-page");
 		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
 		if (accounts.length === 0) {
 			this.renderEmptyState(page);
@@ -99,6 +94,34 @@ export class QuotaView extends ItemView {
 			body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
 			void this.fetchAndRender(account, details, body);
 		}
+	}
+
+	/** 工具行（核心资源管理器同款：内容内 nav-header + nav-buttons-container，aria-label 报名）。 */
+	private renderToolbar(container: HTMLElement): void {
+		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
+		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
+		this.createNavButton(buttons, "arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
+		this.createNavButton(buttons, "chevrons-up-down", STR.toggleExpand, () => {
+			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
+			const target = items.some((item) => !item.open);
+			for (const item of items) item.open = target;
+		});
+		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
+	}
+
+	private createNavButton(
+		container: HTMLElement,
+		icon: string,
+		label: string,
+		onClick: (evt: MouseEvent) => void,
+	): HTMLButtonElement {
+		const button = container.createEl("button", {
+			cls: "clickable-icon nav-action-button",
+			attr: { "aria-label": label, type: "button" },
+		});
+		setIcon(button, icon);
+		button.addEventListener("click", (evt) => onClick(evt));
+		return button;
 	}
 
 	/** 折叠行：chevron + 服务商名 + 灰别名 + 总%右锚；行背景 fill 层即总进度条（宽度取数后回填）。 */

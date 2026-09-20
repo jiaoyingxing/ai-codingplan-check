@@ -1,10 +1,22 @@
 /* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
 
-/* 页面限宽居中（主区打开时防无限拉伸），滚动权归视图本身（leaf 原生滚动） */
+/* 主视图：工具行固定（nav-header 不随滚动），滚动权移入 .qk-scroll（同核心资源管理器布局） */
+.qk-view {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.qk-scroll {
+	flex: 1;
+	overflow-y: auto;
+	padding-bottom: var(--size-4-6);
+}
+
+/* 页面限宽居中（主区打开时防无限拉伸） */
 .qk-page {
 	max-width: var(--file-line-width);
 	margin: 0 auto;
-	padding-bottom: var(--size-4-6);
 }
 
 .qk-empty {
