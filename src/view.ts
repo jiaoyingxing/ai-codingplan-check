@@ -121,12 +121,14 @@ export class QuotaView extends ItemView {
 		});
 
 		const bodyEl = card.createDiv("qk-card-body");
-		const info = bodyEl.createDiv("qk-info");
-		info.createDiv("qk-info-row").createDiv({ text: adapter?.label ?? account.provider, cls: "qk-info-value" });
-		for (const extra of snapshot.extras) {
-			const row = info.createDiv("qk-info-row");
-			row.createDiv({ text: extra.label, cls: "qk-info-key" });
-			row.createDiv({ text: extra.value, cls: "qk-info-value" });
+		// 厂商名已由分组标题承担，左栏只放真实 extras；无 extras 不渲染左栏（进度条占满整行）。
+		if (snapshot.extras.length > 0) {
+			const info = bodyEl.createDiv("qk-info");
+			for (const extra of snapshot.extras) {
+				const row = info.createDiv("qk-info-row");
+				row.createDiv({ text: extra.label, cls: "qk-info-key" });
+				row.createDiv({ text: extra.value, cls: "qk-info-value" });
+			}
 		}
 
 		const bars = bodyEl.createDiv("qk-bars");
