@@ -34,7 +34,14 @@
 	gap: 8px;
 }
 
-/* 分组标题承担层级；滚动权归视图本身（leaf 原生滚动），不做内层滚动框 */
+/* 页面限宽居中（防主区无限拉伸），滚动权归视图本身（leaf 原生滚动） */
+.qk-page {
+	max-width: var(--file-line-width);
+	margin: 0 auto;
+	padding-bottom: var(--size-4-6);
+}
+
+/* 分组标题承担层级 */
 .qk-group-title {
 	margin: 14px 0 6px;
 	color: var(--text-muted);
@@ -169,14 +176,6 @@
 	height: 100%;
 	border-radius: 4px;
 	background: var(--interactive-accent);
-}
-
-.qk-bar-fill.qk-warn {
-	background: var(--color-orange);
-}
-
-.qk-bar-fill.qk-crit {
-	background: var(--color-red);
 }
 
 .qk-window-pct {

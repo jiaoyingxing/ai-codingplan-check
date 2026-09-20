@@ -36,16 +36,17 @@ export class QuotaView extends ItemView {
 
 	async onClose(): Promise<void> {}
 
-	/** 全量重绘（入口/全部刷新用）；单卡刷新走卡内按钮，不重建整板。 */
+	/** 全量重绘（入口/全部刷新用）；单卡刷新走卡内按钮，不重建整板。页面限宽居中，滚动权归 leaf。 */
 	private renderPanel(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+		const page = contentEl.createDiv("qk-page");
 		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
 		if (accounts.length === 0) {
-			this.renderEmptyState();
+			this.renderEmptyState(page);
 			return;
 		}
-		const body = contentEl.createDiv("qk-body");
+		const body = page.createDiv("qk-body");
 		const byProvider = new Map<ProviderId, AccountRecord[]>();
 		for (const account of accounts) {
 			const group = byProvider.get(account.provider) ?? [];
@@ -63,8 +64,8 @@ export class QuotaView extends ItemView {
 		}
 	}
 
-	private renderEmptyState(): void {
-		const empty = this.contentEl.createDiv("qk-empty");
+	private renderEmptyState(container: HTMLElement): void {
+		const empty = container.createDiv("qk-empty");
 		empty.createDiv({ text: STR.noAccounts, cls: "qk-empty-text" });
 		const actions = empty.createDiv("qk-empty-actions");
 		const addBtn = actions.createEl("button", { text: STR.addAccount });
@@ -137,8 +138,8 @@ export class QuotaView extends ItemView {
 			line.createDiv({ text: window.label, cls: "qk-window-label" });
 			const bar = line.createDiv("qk-bar");
 			const fill = bar.createDiv("qk-bar-fill");
+			// 三家 API 原生都是"已用"口径：条越满用得越多，颜色统一主题色（用户拍板：不加分档色）。
 			fill.style.width = `${Math.round(window.usedPercent)}%`;
-			fill.addClass(severityClass(window.usedPercent));
 			line.createDiv({ text: `${Math.round(window.usedPercent)}%`, cls: "qk-window-pct" });
 
 			const reset = formatResetCountdown(window.resetsAt);
@@ -146,13 +147,6 @@ export class QuotaView extends ItemView {
 			if (window.rateLimited) block.createDiv({ text: "已限速", cls: "qk-window-limited" });
 		}
 	}
-}
-
-/** 已用份额阈值：≥90% 红、≥70% 琥珀（对应剩余 ≤10% / ≤30%）。 */
-export function severityClass(usedPercent: number): "qk-crit" | "qk-warn" | "qk-ok" {
-	if (usedPercent >= 90) return "qk-crit";
-	if (usedPercent >= 70) return "qk-warn";
-	return "qk-ok";
 }
 
 /** 重置倒计时的人话格式：<1h → 分钟，<24h → 小时，否则天数。 */
