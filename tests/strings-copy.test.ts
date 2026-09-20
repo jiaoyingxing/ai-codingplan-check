@@ -24,6 +24,7 @@ describe("用户文案禁词与定稿口径", () => {
 	});
 
 	it("凭证导出定稿术语齐备", () => {
+		expect(text).toContain("已接入账号");
 		expect(text).toContain("凭证导出");
 		expect(text).toContain("导出加密副本");
 		expect(text).toContain("导出口令");

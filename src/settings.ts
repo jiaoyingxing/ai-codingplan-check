@@ -106,9 +106,9 @@ export class QuotaSettingTab extends PluginSettingTab {
 		const group = this.accountGroup;
 		if (!group) return;
 		group.listEl.empty();
-		// 首行内部标题保留（用户拍板 20260920）：外侧组标题已去，行名即区块身份。
+		// 首行内部标题=性质描述（用户拍板 20260920：「已接入账号」），按钮自述动作，零重复。
 		group.addSetting((setting) => {
-			setting.setName(STR.addAccount).addButton((button) =>
+			setting.setName(STR.accountsTitle).addButton((button) =>
 				button.setButtonText(STR.addAccount).setCta().onClick(() => {
 					this.plugin.openAccountWizard(() => this.renderAccounts());
 				}),

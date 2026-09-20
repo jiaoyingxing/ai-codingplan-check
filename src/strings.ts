@@ -20,6 +20,7 @@ export const STR = {
 	noAccounts: "还没有账号，先到设置里添加一个。",
 	openSettings: "打开设置",
 	capturedAt: "更新",
+	accountsTitle: "已接入账号",
 	addAccount: "添加账号",
 	accountEmpty: "暂无账号。点击「添加账号」接入第一个套餐。",
 	delete: "删除",
