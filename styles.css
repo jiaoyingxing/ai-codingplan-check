@@ -34,11 +34,7 @@
 	gap: 8px;
 }
 
-.qk-body {
-	max-height: 60vh;
-	overflow-y: auto;
-}
-
+/* 分组标题承担层级；滚动权归视图本身（leaf 原生滚动），不做内层滚动框 */
 .qk-group-title {
 	margin: 14px 0 6px;
 	color: var(--text-muted);
@@ -46,18 +42,10 @@
 	font-weight: 600;
 }
 
+/* OpenCode 扁平模块：无描边、无自绘底色盒子，靠间距与标题分层 */
 .qk-card {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 8px;
-	padding: 12px 16px;
-	margin-bottom: 10px;
-}
-
-.qk-card-error {
-	border-color: var(--text-error);
+	padding: 8px 2px 14px;
+	margin-bottom: 4px;
 }
 
 .qk-card-loading {
@@ -69,6 +57,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
+	margin-bottom: 8px;
 }
 
 .qk-card-title {
