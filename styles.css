@@ -87,7 +87,7 @@ details[open] > .qk-row .qk-collapse-icon {
 	width: 0%;
 	background: var(--interactive-accent);
 	opacity: 0.16;
-	border-radius: inherit;
+	border-radius: var(--radius-s);
 	pointer-events: none;
 	transition: width 200ms ease;
 }
@@ -101,8 +101,9 @@ details[open] > .qk-row .qk-collapse-icon {
 	flex: 1;
 }
 
-/* 卡片标题 = 服务商名（用户拍板：取消分组后上移进折叠行） */
+/* 卡片标题 = 服务商名（用户拍板：取消分组后上移进折叠行）；全页字号收敛在 small/smaller 两档 */
 .qk-card-provider {
+	font-size: var(--font-ui-small);
 	font-weight: 600;
 	white-space: nowrap;
 }
@@ -201,7 +202,8 @@ details[open] > .qk-row .qk-collapse-icon {
 	position: relative;
 	height: 22px;
 	background: var(--background-modifier-border);
-	border-radius: var(--radius-m);
+	/* 圆角收小（用户拍板：太圆），条与填充一致 */
+	border-radius: 3px;
 	overflow: hidden;
 }
 
@@ -213,9 +215,9 @@ details[open] > .qk-row .qk-collapse-icon {
 	transition: width 200ms ease;
 }
 
-/* 百分比嵌条居中，主锚点（用户拍板）；≥60% 落在主题色上切反色 */
+/* 百分比嵌条居中，主锚点（用户拍板）；≥60% 落在主题色上切反色。字号收敛到 small 两档制 */
 .qk-pct {
-	font-size: var(--font-ui-medium);
+	font-size: var(--font-ui-small);
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;

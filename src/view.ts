@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
+import { ItemView, Menu, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter } from "./adapters";
 import { formatPercent, formatResetCountdown } from "./format";
@@ -8,15 +8,40 @@ import type { AccountRecord, QuotaSnapshot } from "./types";
 
 export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
 
+type SortKey = "provider" | "usage" | "reset";
+type SortDir = "asc" | "desc";
+interface SortMode {
+	key: SortKey;
+	dir: SortDir;
+}
+
+function providerLabel(account: AccountRecord): string {
+	return getAdapter(account.provider)?.label ?? account.provider;
+}
+
+/** 行总用量口径：单套餐取约束最紧窗口（最大已用）；
+ *  多套餐（火山同凭证多订阅）暂以「剩余额度最多」为准：取已用最少窗口（用户拍板，待分组方案定稿后重议）。 */
+function accountTotal(snapshots: QuotaSnapshot[]): number {
+	const percents = snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent));
+	if (percents.length === 0) return 0;
+	return snapshots.length > 1 ? Math.max(0, Math.min(...percents)) : Math.min(Math.max(...percents), 100);
+}
+
 /** 额度面板主页：固定左侧栏（EasySync 口径）。账号折叠列表——
- *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，取约束最紧窗口）；
+ *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，口径见 accountTotal）；
  *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
- *  页动作在内容顶部 nav-header（刷新全部/打开设置/全部展开收起），不用 view header 重复入口；
- *  分组顶部可切换/排序为后续计划（CURRENT_STATUS 下一步）。 */
+ *  页动作在 view 头部标签栏（addAction：刷新全部/排序 Menu/全部展开收起/打开设置），不随内容滚动；
+ *  排序复用核心资源管理器模式（addAction + Menu 弹框勾选），快照缓存驱动额度/重置排序。 */
 export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
 	/** 账号折叠态（重绘与单账号刷新后保持；默认收起）。 */
 	private expanded = new Map<string, boolean>();
+	/** 已取回快照缓存（排序用；面板重绘不丢，单账号刷新覆盖）。 */
+	private cache = new Map<string, QuotaSnapshot[]>();
+	/** 行元素索引（排序时移动 DOM 节点用，不重建不重取）。 */
+	private rowEls = new Map<string, HTMLDetailsElement>();
+	/** 当前排序（会话内记忆，不持久化）。 */
+	private sort: SortMode = { key: "provider", dir: "asc" };
 
 	constructor(leaf: WorkspaceLeaf, plugin: AiCodingplanCheckPlugin) {
 		super(leaf);
@@ -37,6 +62,15 @@ export class QuotaView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass("qk-view");
+		// 页动作放 view 头部标签栏（核心资源管理器排序按钮同位）：不随内容滚动，无内容内重复入口。
+		this.addAction("refresh-cw", STR.refreshAll, () => this.renderPanel());
+		this.addAction("arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
+		this.addAction("chevrons-up-down", STR.toggleExpand, () => {
+			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
+			const target = items.some((item) => !item.open);
+			for (const item of items) item.open = target;
+		});
+		this.addAction("settings", STR.openSettings, () => this.plugin.openPluginSettings());
 		this.renderPanel();
 	}
 
@@ -47,16 +81,17 @@ export class QuotaView extends ItemView {
 		const { contentEl } = this;
 		contentEl.empty();
 		const page = contentEl.createDiv("qk-page");
-		this.renderToolbar(page);
 		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
 		if (accounts.length === 0) {
 			this.renderEmptyState(page);
 			return;
 		}
 		const list = page.createDiv("qk-list");
-		for (const account of accounts) {
+		this.rowEls.clear();
+		for (const account of this.sortAccounts(accounts)) {
 			// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多份快照、展开体内分段渲染。
 			const details = list.createEl("details", "qk-account qk-card");
+			details.dataset.accountId = account.id;
 			details.toggleAttribute("open", this.expanded.get(account.id) ?? false);
 			details.addEventListener("toggle", () => this.expanded.set(account.id, details.open));
 			this.renderRow(details.createEl("summary", "qk-row"), account);
@@ -66,44 +101,77 @@ export class QuotaView extends ItemView {
 		}
 	}
 
-	/** 页头动作行（EasySync 口径：原生 nav-header + clickable-icon nav-action-button + aria-label）。 */
-	private renderToolbar(container: HTMLElement): void {
-		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
-		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
-		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
-		this.createNavButton(buttons, "chevrons-up-down", STR.expandAll, (btn) => {
-			const items = Array.from(container.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
-			const target = items.some((item) => !item.open);
-			for (const item of items) item.open = target;
-			setIcon(btn, target ? "chevrons-down-up" : "chevrons-up-down");
-			btn.setAttribute("aria-label", target ? STR.collapseAll : STR.expandAll);
-		});
-	}
-
-	private createNavButton(
-		container: HTMLElement,
-		icon: string,
-		label: string,
-		onClick: (button: HTMLButtonElement) => void,
-	): HTMLButtonElement {
-		const button = container.createEl("button", {
-			cls: "clickable-icon nav-action-button",
-			attr: { "aria-label": label, type: "button" },
-		});
-		setIcon(button, icon);
-		button.addEventListener("click", () => onClick(button));
-		return button;
-	}
-
 	/** 折叠行：chevron + 服务商名 + 灰别名 + 总%右锚；行背景 fill 层即总进度条（宽度取数后回填）。 */
 	private renderRow(summary: HTMLElement, account: AccountRecord): void {
 		const icon = summary.createDiv("qk-collapse-icon");
 		setIcon(icon, "chevron-right");
 		const text = summary.createDiv("qk-row-text");
-		text.createDiv({ text: getAdapter(account.provider)?.label ?? account.provider, cls: "qk-card-provider" });
+		text.createDiv({ text: providerLabel(account), cls: "qk-card-provider" });
 		text.createDiv({ text: account.alias, cls: "qk-card-alias" });
 		summary.createDiv("qk-row-fill");
 		summary.createDiv("qk-row-pct");
+	}
+
+	/** 排序：套餐名按本地化比较；额度/重置时间用缓存快照，无数据账号恒排末尾。返回新数组不改设置原序。 */
+	private sortAccounts(accounts: AccountRecord[]): AccountRecord[] {
+		const { key, dir } = this.sort;
+		const sign = dir === "asc" ? 1 : -1;
+		return [...accounts].sort((a, b) => {
+			if (key === "provider") {
+				return sign * providerLabel(a).localeCompare(providerLabel(b), "zh");
+			}
+			const va = this.sortMetric(a);
+			const vb = this.sortMetric(b);
+			if (va === null && vb === null) return 0;
+			if (va === null) return 1;
+			if (vb === null) return -1;
+			return sign * (va - vb);
+		});
+	}
+
+	private sortMetric(account: AccountRecord): number | null {
+		const snapshots = this.cache.get(account.id);
+		if (!snapshots || snapshots.length === 0) return null;
+		if (this.sort.key === "usage") return accountTotal(snapshots);
+		const resets = snapshots
+			.flatMap((s) => s.windows.map((w) => w.resetsAt))
+			.filter((t): t is number => t !== null);
+		return resets.length > 0 ? Math.min(...resets) : null;
+	}
+
+	/** 按当前排序键重排行 DOM：移动既有节点，不重建、不重取，展开态与进行中的请求都不受影响。 */
+	private applySort(): void {
+		const list = this.contentEl.querySelector<HTMLElement>(".qk-list");
+		if (!list) return;
+		const ordered = this.sortAccounts(this.plugin.settings.accounts.filter((a) => a.enabled));
+		for (const account of ordered) {
+			const el = this.rowEls.get(account.id);
+			if (el) list.appendChild(el);
+		}
+	}
+
+	/** 排序菜单（核心资源管理器排序按钮同款：addAction 触发 Menu，勾选当前项，同组两个方向为一对）。 */
+	private showSortMenu(evt: MouseEvent): void {
+		const menu = new Menu();
+		const add = (label: string, key: SortKey, dir: SortDir) =>
+			menu.addItem((item) =>
+				item
+					.setTitle(label)
+					.setChecked(this.sort.key === key && this.sort.dir === dir)
+					.onClick(() => {
+						this.sort = { key, dir };
+						this.applySort();
+					}),
+			);
+		add(STR.sortProviderAsc, "provider", "asc");
+		add(STR.sortProviderDesc, "provider", "desc");
+		menu.addSeparator();
+		add(STR.sortUsageDesc, "usage", "desc");
+		add(STR.sortUsageAsc, "usage", "asc");
+		menu.addSeparator();
+		add(STR.sortResetAsc, "reset", "asc");
+		add(STR.sortResetDesc, "reset", "desc");
+		menu.showAtMouseEvent(evt);
 	}
 
 	private renderEmptyState(container: HTMLElement): void {
@@ -127,7 +195,9 @@ export class QuotaView extends ItemView {
 		}
 		try {
 			const snapshots = await adapter.fetchQuota(secret);
+			this.cache.set(account.id, snapshots);
 			this.renderAccountBody(details, body, account, snapshots);
+			this.applySort();
 		} catch (error) {
 			this.renderErrorBody(body, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
 		}
@@ -165,13 +235,8 @@ export class QuotaView extends ItemView {
 	): void {
 		body.empty();
 		if (snapshots.length === 0) return;
-		// 行背景总进度条 + 行尾总%锚点。单套餐取约束最紧窗口（最大已用）；
-		// 多套餐（火山同凭证多订阅）暂以「剩余额度最多」口径：取已用最少窗口（用户拍板，待分组方案定稿后重议）。
-		const percents = snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent));
-		const total =
-			snapshots.length > 1
-				? Math.max(0, Math.min(...percents))
-				: Math.min(Math.max(...percents), 100);
+		// 行背景总进度条 + 行尾总%锚点，口径见 accountTotal。
+		const total = accountTotal(snapshots);
 		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
 		rowFill?.setCssStyles({ width: `${total}%` });
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
