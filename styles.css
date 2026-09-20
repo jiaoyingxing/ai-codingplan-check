@@ -42,10 +42,19 @@
 	font-weight: 600;
 }
 
-/* OpenCode 扁平模块：无描边、无自绘底色盒子，靠间距与标题分层 */
+/* 模块底块：共用官方「设置组」表面（SettingGroup 的 --setting-items-* 变量族，
+   同 openplug 口径）——不自绘灰底，主题覆写时跟随换肤；圆角 --radius-l 12px。 */
 .qk-card {
-	padding: 8px 2px 14px;
-	margin-bottom: 4px;
+	background-color: var(
+		--setting-items-background,
+		var(--background-primary-alt, var(--background-secondary))
+	);
+	border-radius: var(--setting-items-radius, var(--radius-l));
+	border: var(--setting-items-border-width, 0)
+		solid
+		var(--setting-items-border-color, var(--background-modifier-border));
+	padding: var(--size-4-3);
+	margin-bottom: 10px;
 }
 
 .qk-card-loading {
