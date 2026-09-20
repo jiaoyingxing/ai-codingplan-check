@@ -1,15 +1,11 @@
 /* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
 
-/* 主视图：工具行贴顶（用户拍板：去多余空白；原生 .view-content 12px 上内边距压掉，左右保留卡片边距），滚动权在 .qk-scroll */
+/* 主视图：工具行贴顶但保留原生 nav-header 呼吸感（EasySync 口径：不加自定上内边距），滚动权在 .qk-scroll */
 .workspace-leaf-content > .view-content.qk-view {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
 	padding: 0 var(--size-4-3) var(--size-4-3);
-}
-
-.qk-view .nav-header {
-	padding-top: var(--size-4-1);
 }
 
 .qk-scroll {

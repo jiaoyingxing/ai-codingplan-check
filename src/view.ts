@@ -47,6 +47,8 @@ export class QuotaView extends ItemView {
 	private rowEls = new Map<string, HTMLDetailsElement>();
 	/** 当前排序（会话内记忆，不持久化）。 */
 	private sort: SortMode = { key: "provider", dir: "asc" };
+	/** 展开/收起按钮引用：列表建好后与每次点击后按 DOM 重刷图标（EasySync collapseToggleButtonEl 口径）。 */
+	private collapseButtonEl: HTMLButtonElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: AiCodingplanCheckPlugin) {
 		super(leaf);
@@ -91,6 +93,8 @@ export class QuotaView extends ItemView {
 			// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多份快照、展开体内分段渲染。
 			const details = list.createEl("details", "qk-account qk-card");
 			details.dataset.accountId = account.id;
+			// 行元素索引：applySort 移动节点全靠它（缺失则排序静默失效，20260920 实测教训）。
+			this.rowEls.set(account.id, details);
 			details.toggleAttribute("open", this.expanded.get(account.id) ?? false);
 			details.addEventListener("toggle", () => this.expanded.set(account.id, details.open));
 			this.renderRow(details.createEl("summary", "qk-row"), account);
@@ -98,19 +102,32 @@ export class QuotaView extends ItemView {
 			body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
 			void this.fetchAndRender(account, details, body);
 		}
+		// 列表建好后重刷展开/收起按钮：toolbar 创建时集合为空，会误判为"全部收起"。
+		this.updateCollapseToggle();
 	}
 
-	/** 工具行（核心资源管理器同款：内容内 nav-header + nav-buttons-container，aria-label 报名）。 */
+	/** 工具行（核心资源管理器同款：内容内 nav-header + nav-buttons-container，aria-label 报名）。
+	 *  展开/收起按钮图标随态变化（EasySync 口径）：从 DOM 推导，不维护独立状态位。 */
 	private renderToolbar(container: HTMLElement): void {
 		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
 		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
 		this.createNavButton(buttons, "arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
-		this.createNavButton(buttons, "chevrons-up-down", STR.toggleExpand, () => {
+		this.collapseButtonEl = this.createNavButton(buttons, "chevrons-up-down", STR.expandAll, () => {
 			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
 			const target = items.some((item) => !item.open);
 			for (const item of items) item.open = target;
+			this.updateCollapseToggle();
 		});
 		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
+	}
+
+	/** 从 DOM 推导展开/收起按钮的图标与报名：有收起行 → 呈现"全部展开"，全开 → 呈现"全部收起"。 */
+	private updateCollapseToggle(): void {
+		if (!this.collapseButtonEl) return;
+		const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
+		const shouldExpand = items.some((item) => !item.open);
+		setIcon(this.collapseButtonEl, shouldExpand ? "chevrons-up-down" : "chevrons-down-up");
+		this.collapseButtonEl.setAttribute("aria-label", shouldExpand ? STR.expandAll : STR.collapseAll);
 	}
 
 	private createNavButton(
