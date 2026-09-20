@@ -6,18 +6,19 @@ export function formatPercent(value: number): string {
 }
 
 /** 重置倒计时的人话格式（复合单位）：<1h → 分钟；<24h → 小时+分；≥1天 → 天+小时，零余数省略。
- *  compact=true 输出去空格的紧凑排版（列表行内嵌场景），信息量不变。 */
+ *  compact=true 为行内紧凑排版：去空格且不带「后重置」后缀，只留时长（"22天13小时"），信息量不变。 */
 export function formatResetCountdown(resetsAt: number | null, now = Date.now(), compact = false): string {
 	if (resetsAt === null) return "";
 	const diff = resetsAt - now;
 	if (diff <= 0) return "即将重置";
 	const s = compact ? "" : " ";
+	const tail = compact ? "" : "后重置";
 	const minutes = Math.floor(diff / 60000);
-	if (minutes < 60) return `${minutes}${s}分钟后重置`;
+	if (minutes < 60) return `${minutes}${s}分钟${tail}`;
 	const hours = Math.floor(minutes / 60);
 	const hourPart = minutes % 60;
-	if (hours < 24) return hourPart > 0 ? `${hours}${s}小时${s}${hourPart}${s}分后重置` : `${hours}${s}小时后重置`;
+	if (hours < 24) return hourPart > 0 ? `${hours}${s}小时${s}${hourPart}${s}分${tail}` : `${hours}${s}小时${tail}`;
 	const days = Math.floor(hours / 24);
 	const dayPart = hours % 24;
-	return dayPart > 0 ? `${days}${s}天${s}${dayPart}${s}小时后重置` : `${days}${s}天后重置`;
+	return dayPart > 0 ? `${days}${s}天${s}${dayPart}${s}小时${tail}` : `${days}${s}天${tail}`;
 }

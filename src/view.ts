@@ -165,12 +165,19 @@ export class QuotaView extends ItemView {
 	): void {
 		body.empty();
 		if (snapshots.length === 0) return;
-		// 行背景总进度条 + 行尾总%锚点：取约束最紧窗口（最大已用），不新增信息位。
-		const total = Math.min(Math.max(...snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent))), 100);
+		// 行背景总进度条 + 行尾总%锚点。单套餐取约束最紧窗口（最大已用）；
+		// 多套餐（火山同凭证多订阅）暂以「剩余额度最多」口径：取已用最少窗口（用户拍板，待分组方案定稿后重议）。
+		const percents = snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent));
+		const total =
+			snapshots.length > 1
+				? Math.max(0, Math.min(...percents))
+				: Math.min(Math.max(...percents), 100);
 		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
 		rowFill?.setCssStyles({ width: `${total}%` });
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct) {
+			// 单账号刷新会重复进入本方法：先清空旧行尾数字再重填，否则百分比叠加显示。
+			rowPct.empty();
 			rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
 			rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
 		}

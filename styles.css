@@ -186,7 +186,7 @@ details[open] > .qk-row .qk-collapse-icon {
 
 .qk-window-row {
 	display: grid;
-	grid-template-columns: 64px 1fr auto;
+	grid-template-columns: 64px 1fr 96px;
 	align-items: center;
 	gap: 10px;
 	font-size: var(--font-ui-small);
@@ -246,8 +246,12 @@ details[open] > .qk-row .qk-collapse-icon {
 	opacity: 0.8;
 }
 
+/* 重置列定宽：全部进度条等长（用户拍板避免参差），文本右对齐，超长兜底省略 */
 .qk-window-reset {
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
+	text-align: right;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	white-space: nowrap;
 }
