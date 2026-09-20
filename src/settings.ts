@@ -7,9 +7,8 @@ import type { AccountRecord, ProviderAdapter, ProviderId } from "./types";
 export class QuotaSettingTab extends PluginSettingTab {
 	plugin: AiCodingplanCheckPlugin;
 	private accountGroup: SettingGroup | null = null;
-	/** 跨设备同步组：开关/更新副本后局部重绘只清 listEl 重建行，不叠组、不动整页。 */
+	/** 凭证导出组：开关/更新副本后局部重绘只清 listEl 重建行，不叠组、不动整页。 */
 	private syncGroup: SettingGroup | null = null;
-
 	constructor(app: App, plugin: AiCodingplanCheckPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
@@ -19,26 +18,28 @@ export class QuotaSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		// SettingGroup（1.11.0+）：宽模块分组节奏；列表区局部重绘不整页重建。
+		// 账号组无外侧标题（用户拍板 20260920）：首行内部标题即身份，避免顶部重复一层。
 		this.accountGroup = new SettingGroup(containerEl);
-		this.accountGroup.setHeading(STR.settingsHeading);
 		this.renderAccounts();
 		this.renderMobileSync();
 	}
 
-	/** 跨设备同步组（20260920 两行化）：行1 开关承载开/停（开→口令弹窗，取消回弹；关→清副本，可逆免确认）；
-	 *  行2 口令行仅在开启后出现，承接换口令与补副本。无标题轻分组，行1 名称即区块身份，不与分组标题重复。 */
+	/** 凭证导出组（20260920 三次拍板：弃用「同步」一词）：独立模块带外侧标题；
+	 *  行1 开关承载开/关（开→导出口令弹窗，取消回弹；关→清副本，可逆免确认）；
+	 *  行2 口令行仅在开启后出现，承接换口令与补副本。 */
 	private renderMobileSync(): void {
 		if (!this.syncGroup || !this.syncGroup.listEl.isConnected) {
 			this.syncGroup = new SettingGroup(this.containerEl);
 		}
 		const group = this.syncGroup;
 		group.listEl.empty();
+		group.setHeading(STR.exportHeading);
 		const copiedCount = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
 		const enabled = copiedCount > 0;
 		group.addSetting((setting) => {
 			setting
-				.setName(STR.mobileSyncName)
-				.setDesc(enabled ? STR.mobileSyncDescOn.replace("{n}", String(copiedCount)) : STR.mobileSyncDescOff)
+				.setName(STR.exportCopyName)
+				.setDesc(enabled ? STR.exportDescOn.replace("{n}", String(copiedCount)) : STR.exportDescOff)
 				.addToggle((toggle) =>
 					toggle.setValue(enabled).onChange((value) => {
 						void (async () => {
@@ -50,14 +51,14 @@ export class QuotaSettingTab extends PluginSettingTab {
 								}
 								try {
 									await this.plugin.setMobileSyncPassphrase(passphrase);
-									new Notice(STR.mobileSyncEnabled);
+									new Notice(STR.exportDone);
 								} catch (error) {
 									new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
 								}
 							} else {
-								// 停用可逆（重新输口令即恢复），无需确认。
+								// 关闭可逆（重新输口令即恢复），无需确认。
 								await this.plugin.setMobileSyncPassphrase(null);
-								new Notice(STR.mobileSyncDisabled);
+								new Notice(STR.exportDisabled);
 							}
 							this.renderMobileSync();
 						})();
@@ -68,26 +69,26 @@ export class QuotaSettingTab extends PluginSettingTab {
 		let passphrase = "";
 		group.addSetting((setting) => {
 			setting
-				.setName(STR.mobileSyncPassName)
-				.setDesc(STR.mobileSyncPassDesc)
+				.setName(STR.exportPassName)
+				.setDesc(STR.exportPassDesc)
 				.addText((text) => {
 					text.inputEl.type = "password";
-					text.setPlaceholder(STR.mobileSyncPlaceholder).onChange((value) => {
+					text.setPlaceholder(STR.exportPlaceholder).onChange((value) => {
 						passphrase = value.trim();
 					});
 				})
 				.addButton((button) => {
-					button.setButtonText(STR.mobileSyncUpdate).setCta();
+					button.setButtonText(STR.exportUpdate).setCta();
 					button.onClick(() => {
 						void (async () => {
 							if (passphrase.length < 8) {
-								new Notice(STR.mobileSyncTooShort);
+								new Notice(STR.exportTooShort);
 								return;
 							}
 							button.buttonEl.disabled = true;
 							try {
 								await this.plugin.setMobileSyncPassphrase(passphrase);
-								new Notice(STR.mobileSyncUpdated);
+								new Notice(STR.exportUpdated);
 								this.renderMobileSync();
 							} catch (error) {
 								new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
@@ -105,9 +106,9 @@ export class QuotaSettingTab extends PluginSettingTab {
 		const group = this.accountGroup;
 		if (!group) return;
 		group.listEl.empty();
-		// 行首只留主动作按钮：再设行名会与按钮文字重复表达（用户拍板 20260920）。
+		// 首行内部标题保留（用户拍板 20260920）：外侧组标题已去，行名即区块身份。
 		group.addSetting((setting) => {
-			setting.addButton((button) =>
+			setting.setName(STR.addAccount).addButton((button) =>
 				button.setButtonText(STR.addAccount).setCta().onClick(() => {
 					this.plugin.openAccountWizard(() => this.renderAccounts());
 				}),
@@ -298,7 +299,7 @@ export class AccountModal extends Modal {
 										await this.plugin.refreshEncryptedSecret(this.account, stored);
 									} else {
 										delete this.account.encSecret;
-										new Notice(STR.mobileSyncStale, 6000);
+										new Notice(STR.exportStale, 6000);
 									}
 								}
 							}
@@ -328,7 +329,7 @@ export function describeError(error: unknown): string {
 	return String(error);
 }
 
-/** 移动端解锁框：输同步口令解密 data.json 密文副本；取消/关闭返回 null。口令只在内存流转。 */
+/** 导入口令框：其他设备首次查看时输入导出口令，解密插件数据中的加密副本；取消/关闭返回 null。口令只在内存流转。 */
 export class MobileUnlockModal extends Modal {
 	private resolve: ((value: string | null) => void) | null = null;
 
@@ -352,7 +353,7 @@ export class MobileUnlockModal extends Modal {
 			.setDesc(STR.unlockDesc)
 			.addText((text) => {
 				text.inputEl.type = "password";
-				text.setPlaceholder(STR.mobileSyncPlaceholder);
+				text.setPlaceholder(STR.exportPlaceholder);
 				text.onChange((value) => {
 					passphrase = value;
 				});
@@ -377,7 +378,7 @@ export class MobileUnlockModal extends Modal {
 	}
 }
 
-/** 设置同步口令框：开关打开跨设备同步时输入；确认返回口令（少于 8 位拦截在本框内），取消/关闭返回 null。口令只在内存流转。 */
+/** 设置导出口令框：开关打开凭证导出时输入；确认返回口令（少于 8 位拦截在本框内），取消/关闭返回 null。口令只在内存流转。 */
 export class SyncPassphraseModal extends Modal {
 	private resolve: ((value: string | null) => void) | null = null;
 
@@ -390,12 +391,12 @@ export class SyncPassphraseModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.titleEl.setText(STR.syncPassTitle);
+		this.titleEl.setText(STR.exportPassTitle);
 		let passphrase = "";
 		const submit = () => {
 			const value = passphrase.trim();
 			if (value.length < 8) {
-				new Notice(STR.mobileSyncTooShort);
+				new Notice(STR.exportTooShort);
 				return;
 			}
 			this.resolve?.(value);
@@ -403,16 +404,16 @@ export class SyncPassphraseModal extends Modal {
 			this.close();
 		};
 		const setting = new Setting(this.contentEl)
-			.setName(STR.mobileSyncPassName)
-			.setDesc(STR.syncPassDesc)
+			.setName(STR.exportPassName)
+			.setDesc(STR.exportPassModalDesc)
 			.addText((text) => {
 				text.inputEl.type = "password";
-				text.setPlaceholder(STR.mobileSyncPlaceholder);
+				text.setPlaceholder(STR.exportPlaceholder);
 				text.onChange((value) => {
 					passphrase = value;
 				});
 			});
-		setting.addButton((button) => button.setButtonText(STR.mobileSyncEnable).setCta().onClick(() => submit()));
+		setting.addButton((button) => button.setButtonText(STR.exportEnable).setCta().onClick(() => submit()));
 		setting.controlEl.addEventListener("keydown", (evt: KeyboardEvent) => {
 			if (evt.key === "Enter") submit();
 		});

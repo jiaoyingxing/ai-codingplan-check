@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, type AccountRecord, type PluginSettings } from "./typ
 
 export default class AiCodingplanCheckPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
-	/** 移动端同步口令（会话内缓存，解密/重加密用；永不持久化、不进日志）。 */
+	/** 导出口令（内存缓存，解密/重加密用；永不持久化、不进日志）。 */
 	sessionPassphrase: string | null = null;
 
 	async onload(): Promise<void> {
