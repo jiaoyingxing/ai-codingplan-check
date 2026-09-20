@@ -23,19 +23,22 @@ export class QuotaSettingTab extends PluginSettingTab {
 		this.renderMobileSync();
 	}
 
-	/** 移动端同步组：口令只进会话内存，data.json 仅存 AES-GCM 密文副本（20260920 用户拍板）。 */
+	/** 移动端同步组（20260920 文案与流程精简）：动作随状态变化——未开启「开启同步」，已开启「更新副本」+「停用」。 */
 	private renderMobileSync(): void {
 		const group = new SettingGroup(this.containerEl);
 		group.setHeading(STR.mobileSyncHeading);
-		const withCopy = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
+		const accounts = this.plugin.settings.accounts;
+		const enabled = accounts.some((a) => a.encSecret);
 		let passphrase = "";
-		const applyButton: HTMLButtonElement[] = [];
 		group.addSetting((setting) => {
 			setting
 				.setName(STR.mobileSyncName)
 				.setDesc(
-					withCopy > 0
-						? `${STR.mobileSyncDescOn.replace("{n}", String(withCopy))}`
+					enabled
+						? STR.mobileSyncDescOn.replace(
+								"{n}",
+								String(accounts.filter((a) => a.encSecret).length),
+							)
 						: STR.mobileSyncDescOff,
 				)
 				.addText((text) => {
@@ -45,38 +48,38 @@ export class QuotaSettingTab extends PluginSettingTab {
 					});
 				})
 				.addButton((button) => {
-					applyButton.push(button.buttonEl);
-					button
-						.setButtonText(STR.mobileSyncApply)
-						.setCta()
-						.onClick(() => {
-							void (async () => {
-								if (passphrase.length < 8) {
-									new Notice(STR.mobileSyncTooShort);
-									return;
-								}
-								for (const el of applyButton) el.disabled = true;
-								try {
-									await this.plugin.setMobileSyncPassphrase(passphrase);
-									new Notice(STR.mobileSyncApplied);
-									this.display();
-								} catch (error) {
-									new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
-								} finally {
-									for (const el of applyButton) el.disabled = false;
-								}
-							})();
-						});
-				})
-				.addExtraButton((button) =>
-					button.setIcon("trash").setTooltip(STR.mobileSyncClear).onClick(() => {
+					button.setButtonText(enabled ? STR.mobileSyncUpdate : STR.mobileSyncEnable).setCta();
+					button.onClick(() => {
+						void (async () => {
+							if (passphrase.length < 8) {
+								new Notice(STR.mobileSyncTooShort);
+								return;
+							}
+							button.buttonEl.disabled = true;
+							try {
+								await this.plugin.setMobileSyncPassphrase(passphrase);
+								new Notice(enabled ? STR.mobileSyncUpdated : STR.mobileSyncEnabled);
+								this.display();
+							} catch (error) {
+								new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
+							} finally {
+								button.buttonEl.disabled = false;
+							}
+						})();
+					});
+				});
+			// 停用可逆（重新输口令即恢复），无需确认；普通文字按钮，次于主动作。
+			if (enabled) {
+				setting.addButton((extra) =>
+					extra.setButtonText(STR.mobileSyncDisable).onClick(() => {
 						void (async () => {
 							await this.plugin.setMobileSyncPassphrase(null);
-							new Notice(STR.mobileSyncCleared);
+							new Notice(STR.mobileSyncDisabled);
 							this.display();
 						})();
 					}),
 				);
+			}
 		});
 	}
 
@@ -326,13 +329,16 @@ export class MobileUnlockModal extends Modal {
 	onOpen(): void {
 		this.titleEl.setText(STR.unlockTitle);
 		let passphrase = "";
-		const setting = new Setting(this.contentEl).setName(STR.unlockName).addText((text) => {
-			text.inputEl.type = "password";
-			text.setPlaceholder(STR.mobileSyncPlaceholder);
-			text.onChange((value) => {
-				passphrase = value;
+		const setting = new Setting(this.contentEl)
+			.setName(STR.unlockName)
+			.setDesc(STR.unlockDesc)
+			.addText((text) => {
+				text.inputEl.type = "password";
+				text.setPlaceholder(STR.mobileSyncPlaceholder);
+				text.onChange((value) => {
+					passphrase = value;
+				});
 			});
-		});
 		setting.addButton((button) =>
 			button.setButtonText(STR.unlockConfirm).setCta().onClick(() => this.submit(passphrase)),
 		);
