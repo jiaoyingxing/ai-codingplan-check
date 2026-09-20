@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { formatPercent, formatResetCountdown } from "../src/format";
-
 describe("formatPercent", () => {
 	it("最多两位小数并去尾零", () => {
 		expect(formatPercent(67.526)).toBe("67.53");

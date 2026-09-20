@@ -2,8 +2,9 @@ import { ItemView, Menu, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter } from "./adapters";
 import { formatPercent, formatResetCountdown } from "./format";
+import { decryptSecret } from "./secret-crypto";
 import { STR } from "./strings";
-import { describeError } from "./settings";
+import { MobileUnlockModal, describeError } from "./settings";
 import type { AccountRecord, QuotaSnapshot } from "./types";
 
 export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
@@ -214,7 +215,23 @@ export class QuotaView extends ItemView {
 	private async fetchAndRender(account: AccountRecord, details: HTMLDetailsElement, body: HTMLElement): Promise<void> {
 		const adapter = getAdapter(account.provider);
 		if (!adapter) return;
-		const secret = this.app.secretStorage.getSecret(account.secretId);
+		let secret = this.app.secretStorage.getSecret(account.secretId);
+		// 移动端回退（用户拍板 20260920）：本地保险箱无值但 data.json 有密文副本 → 口令解锁；
+		// 解出即写入本地 SecretStorage，本次会话与他账号免再输；口令不对/密文损坏走错误行可重试。
+		if (!secret && account.encSecret) {
+			const passphrase =
+				this.plugin.sessionPassphrase ?? (await new MobileUnlockModal(this.app).awaitPassphrase());
+			if (passphrase) {
+				try {
+					secret = await decryptSecret(account.encSecret, passphrase);
+					this.app.secretStorage.setSecret(account.secretId, secret);
+					this.plugin.sessionPassphrase = passphrase;
+				} catch {
+					this.renderErrorBody(body, `${account.alias}：${STR.decryptFailed}`, account);
+					return;
+				}
+			}
+		}
 		if (!secret) {
 			this.renderErrorBody(body, `${account.alias}：${STR.secretMissing}`, account);
 			return;

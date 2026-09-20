@@ -20,6 +20,64 @@ export class QuotaSettingTab extends PluginSettingTab {
 		this.accountGroup = new SettingGroup(containerEl);
 		this.accountGroup.setHeading(STR.settingsHeading);
 		this.renderAccounts();
+		this.renderMobileSync();
+	}
+
+	/** 移动端同步组：口令只进会话内存，data.json 仅存 AES-GCM 密文副本（20260920 用户拍板）。 */
+	private renderMobileSync(): void {
+		const group = new SettingGroup(this.containerEl);
+		group.setHeading(STR.mobileSyncHeading);
+		const withCopy = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
+		let passphrase = "";
+		const applyButton: HTMLButtonElement[] = [];
+		group.addSetting((setting) => {
+			setting
+				.setName(STR.mobileSyncName)
+				.setDesc(
+					withCopy > 0
+						? `${STR.mobileSyncDescOn.replace("{n}", String(withCopy))}`
+						: STR.mobileSyncDescOff,
+				)
+				.addText((text) => {
+					text.inputEl.type = "password";
+					text.setPlaceholder(STR.mobileSyncPlaceholder).onChange((value) => {
+						passphrase = value.trim();
+					});
+				})
+				.addButton((button) => {
+					applyButton.push(button.buttonEl);
+					button
+						.setButtonText(STR.mobileSyncApply)
+						.setCta()
+						.onClick(() => {
+							void (async () => {
+								if (passphrase.length < 8) {
+									new Notice(STR.mobileSyncTooShort);
+									return;
+								}
+								for (const el of applyButton) el.disabled = true;
+								try {
+									await this.plugin.setMobileSyncPassphrase(passphrase);
+									new Notice(STR.mobileSyncApplied);
+									this.display();
+								} catch (error) {
+									new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
+								} finally {
+									for (const el of applyButton) el.disabled = false;
+								}
+							})();
+						});
+				})
+				.addExtraButton((button) =>
+					button.setIcon("trash").setTooltip(STR.mobileSyncClear).onClick(() => {
+						void (async () => {
+							await this.plugin.setMobileSyncPassphrase(null);
+							new Notice(STR.mobileSyncCleared);
+							this.display();
+						})();
+					}),
+				);
+		});
 	}
 
 	/** 账号组局部重绘：添加/编辑/删除只重建本组列表，不动整页。 */
@@ -193,27 +251,36 @@ export class AccountModal extends Modal {
 					button.setButtonText(saveLabel());
 					if (saveButton) saveButton.disabled = true;
 					try {
-						let testSummary = "";
-						if (keyChanged) {
-							const snapshots = await adapter.fetchQuota(stored);
-							testSummary = snapshots
-								.map((s) => s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · "))
-								.join(" / ");
-							if (editing && this.account) {
-								this.app.secretStorage.setSecret(this.account.secretId, stored);
-							} else {
-								// id 只生成一次：secretId 与账号记录必须指向同一把钥匙。
-								const id = crypto.randomUUID();
-								this.account = {
-									id,
-									provider: adapter.id,
-									alias: alias || adapter.label,
-									secretId: `account-${id}`,
-									enabled: true,
-								};
-								this.app.secretStorage.setSecret(this.account.secretId, stored);
+							let testSummary = "";
+							if (keyChanged) {
+								const snapshots = await adapter.fetchQuota(stored);
+								testSummary = snapshots
+									.map((s) => s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · "))
+									.join(" / ");
+								if (editing && this.account) {
+									this.app.secretStorage.setSecret(this.account.secretId, stored);
+								} else {
+									// id 只生成一次：secretId 与账号记录必须指向同一把钥匙。
+									const id = crypto.randomUUID();
+									this.account = {
+										id,
+										provider: adapter.id,
+										alias: alias || adapter.label,
+										secretId: `account-${id}`,
+										enabled: true,
+									};
+									this.app.secretStorage.setSecret(this.account.secretId, stored);
+								}
+								// 凭证变化：口令已知则重加密副本；未知则失效化（口令不可找回是特性），提示到设置重建。
+								if (this.account.encSecret !== undefined) {
+									if (this.plugin.sessionPassphrase) {
+										await this.plugin.refreshEncryptedSecret(this.account, stored);
+									} else {
+										delete this.account.encSecret;
+										new Notice(STR.mobileSyncStale, 6000);
+									}
+								}
 							}
-						}
 						const record = this.account!;
 						record.alias = alias || adapter.label;
 						if (!this.plugin.settings.accounts.includes(record)) {
@@ -238,4 +305,50 @@ export class AccountModal extends Modal {
 export function describeError(error: unknown): string {
 	if (error instanceof Error && error.message) return error.message;
 	return String(error);
+}
+
+/** 移动端解锁框：输同步口令解密 data.json 密文副本；取消/关闭返回 null。口令只在内存流转。 */
+export class MobileUnlockModal extends Modal {
+	private resolve: ((value: string | null) => void) | null = null;
+
+	constructor(app: App) {
+		super(app);
+	}
+
+	/** 打开并等待口令；确认返回口令，取消/关闭返回 null。 */
+	awaitPassphrase(): Promise<string | null> {
+		this.open();
+		return new Promise<string | null>((resolve) => {
+			this.resolve = resolve;
+		});
+	}
+
+	onOpen(): void {
+		this.titleEl.setText(STR.unlockTitle);
+		let passphrase = "";
+		const setting = new Setting(this.contentEl).setName(STR.unlockName).addText((text) => {
+			text.inputEl.type = "password";
+			text.setPlaceholder(STR.mobileSyncPlaceholder);
+			text.onChange((value) => {
+				passphrase = value;
+			});
+		});
+		setting.addButton((button) =>
+			button.setButtonText(STR.unlockConfirm).setCta().onClick(() => this.submit(passphrase)),
+		);
+		setting.controlEl.addEventListener("keydown", (evt: KeyboardEvent) => {
+			if (evt.key === "Enter") this.submit(passphrase);
+		});
+	}
+
+	private submit(value: string): void {
+		this.resolve?.(value.trim() || null);
+		this.resolve = null;
+		this.close();
+	}
+
+	onClose(): void {
+		this.resolve?.(null);
+		this.resolve = null;
+	}
 }

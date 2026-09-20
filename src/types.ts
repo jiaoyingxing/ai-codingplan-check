@@ -2,7 +2,8 @@
 
 export type ProviderId = "opencode-go" | "commandcode" | "volcengine";
 
-/** data.json 里持久化的账号记录；凭证本体在 SecretStorage，不落 data.json。 */
+/** data.json 里持久化的账号记录；凭证明文在 SecretStorage（运行时唯一明文源）。
+ *  encSecret 是口令加密的凭证副本（用户拍板 20260920）：随 data.json 同步到移动端，手机首次解锁后写入本地 SecretStorage。 */
 export interface AccountRecord {
 	id: string;
 	provider: ProviderId;
@@ -10,6 +11,8 @@ export interface AccountRecord {
 	/** SecretStorage 中的 secret id，形如 `account-<id>`（ID 仅允许小写字母/数字/破折号）。 */
 	secretId: string;
 	enabled: boolean;
+	/** 同步密文（src/secret-crypto.ts 自描述 JSON）；缺省 = 未启用移动端同步或副本已失效。 */
+	encSecret?: string;
 }
 
 /** 一条额度窗口：三家共同的"已用百分比 + 重置时间"形状。 */

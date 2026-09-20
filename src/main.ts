@@ -2,10 +2,13 @@ import { Plugin } from "obsidian";
 import { QuotaSettingTab, AccountModal } from "./settings";
 import { STR } from "./strings";
 import { VIEW_TYPE_QUOTA_PANEL, QuotaView } from "./view";
+import { encryptSecret } from "./secret-crypto";
 import { DEFAULT_SETTINGS, type AccountRecord, type PluginSettings } from "./types";
 
 export default class AiCodingplanCheckPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
+	/** 移动端同步口令（会话内缓存，解密/重加密用；永不持久化、不进日志）。 */
+	sessionPassphrase: string | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -49,6 +52,27 @@ export default class AiCodingplanCheckPlugin extends Plugin {
 
 	getSecret(account: AccountRecord): string | null {
 		return this.app.secretStorage.getSecret(account.secretId);
+	}
+
+	/** 生成/更新全部账号的加密副本（设置口令即启用；传 null 清除副本即停用）。 */
+	async setMobileSyncPassphrase(passphrase: string | null): Promise<void> {
+		for (const account of this.settings.accounts) {
+			if (passphrase === null) {
+				delete account.encSecret;
+				continue;
+			}
+			const secret = this.app.secretStorage.getSecret(account.secretId);
+			if (secret) account.encSecret = await encryptSecret(secret, passphrase);
+		}
+		this.sessionPassphrase = passphrase;
+		await this.saveSettings();
+	}
+
+	/** 凭证变化后重加密该账号副本（仅当本会话已知口令；未知时由调用方失效化处理）。 */
+	async refreshEncryptedSecret(account: AccountRecord, secret: string): Promise<void> {
+		if (!this.sessionPassphrase) return;
+		account.encSecret = await encryptSecret(secret, this.sessionPassphrase);
+		await this.saveSettings();
 	}
 
 	async loadSettings(): Promise<void> {
