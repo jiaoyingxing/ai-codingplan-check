@@ -1,4 +1,4 @@
-import { App, Modal, Notice, PluginSettingTab, Setting, SettingGroup } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, SettingGroup, TextComponent } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter, listAdapters } from "./adapters";
 import { STR } from "./strings";
@@ -96,7 +96,6 @@ export class AccountModal extends Modal {
 		this.titleEl.setText(editing ? STR.editAccount : STR.wizardTitle);
 		let provider: ProviderId | undefined = this.account?.provider ?? adapters[0]?.id;
 		let alias = this.account?.alias ?? "";
-		let credential = "";
 		let saveButton: HTMLButtonElement | null = null;
 		const saveLabel = () => (this.testing ? STR.wizardTesting : editing ? STR.wizardSave : STR.wizardTestAndSave);
 
@@ -120,18 +119,32 @@ export class AccountModal extends Modal {
 		});
 
 		const credentialSetting = new Setting(this.contentEl).setName(STR.wizardCredential);
+		// 编辑态回填钥匙串现值：value 存真实 key，靠 type=password 渲染圆点，眼睛切明文（官方密钥行模式）。
+		const storedSecret = editing ? (this.app.secretStorage.getSecret(this.account!.secretId) ?? "") : "";
+		let credential = storedSecret;
 		const refreshHint = () => {
 			credentialSetting.setDesc(
-				editing ? STR.credentialKeepHint : (provider ? getAdapter(provider)?.credentialHint : "") ?? "",
+				editing ? STR.credentialEditHint : (provider ? getAdapter(provider)?.credentialHint : "") ?? "",
 			);
 		};
 		refreshHint();
+		let credentialText: TextComponent | null = null;
 		credentialSetting.addText((text) => {
+			credentialText = text;
 			text.inputEl.type = "password";
+			text.setValue(credential);
 			text.onChange((value) => {
 				credential = value.trim();
 			});
 		});
+		let revealed = false;
+		credentialSetting.addExtraButton((button) =>
+			button.setIcon("eye").setTooltip(STR.revealKey).onClick(() => {
+				revealed = !revealed;
+				if (credentialText) credentialText.inputEl.type = revealed ? "text" : "password";
+				button.setIcon(revealed ? "eye-off" : "eye");
+			}),
+		);
 
 		new Setting(this.contentEl)
 			.addButton((button) => button.setButtonText(STR.wizardCancel).onClick(() => this.close()))
@@ -141,8 +154,8 @@ export class AccountModal extends Modal {
 					if (this.testing) return;
 					const adapter = provider ? getAdapter(provider) : undefined;
 					if (!adapter) return;
-					const wantsNewKey = !editing || credential !== "";
-					if (wantsNewKey && !credential) {
+					const keyChanged = credential !== storedSecret;
+					if (keyChanged && !credential) {
 						new Notice(`${STR.wizardCredential}不能为空`);
 						return;
 					}
@@ -151,7 +164,7 @@ export class AccountModal extends Modal {
 					if (saveButton) saveButton.disabled = true;
 					try {
 						let testSummary = "";
-						if (wantsNewKey) {
+						if (keyChanged) {
 							const snapshot = await adapter.fetchQuota(credential);
 							testSummary = snapshot.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · ");
 							if (editing && this.account) {

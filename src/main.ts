@@ -29,9 +29,9 @@ export default class AiCodingplanCheckPlugin extends Plugin {
 		await workspace.revealLeaf(leaf);
 	}
 
-	/** 添加/编辑账号共用入口（onSaved 供局部刷新回调）。 */
-	openAccountWizard(onSaved?: () => void): void {
-		new AccountModal(this.app, this, onSaved).open();
+	/** 添加/编辑账号共用入口（传 account 即编辑；onSaved 供局部刷新回调）。 */
+	openAccountWizard(onSaved?: () => void, account?: AccountRecord): void {
+		new AccountModal(this.app, this, onSaved, account).open();
 	}
 
 	/** 设置窗口不在公开类型里，用窄类型投影访问（同 easy-sync openPluginSettings 惯例）。 */
