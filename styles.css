@@ -1,23 +1,10 @@
 /* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
 
-/* 右侧栏主页视图：窄容器下卡片改纵向（信息行在上、进度条在下） */
-.qk-view .qk-card-body {
-	flex-direction: column;
-	gap: 10px;
-}
-
-.qk-view .qk-info {
-	flex: none;
-	flex-direction: row;
-	flex-wrap: wrap;
-	gap: 4px 16px;
-	border-right: none;
-	border-bottom: 1px solid var(--background-modifier-border);
-	padding: 0 0 10px;
-}
-
-.qk-view .qk-info-row {
-	flex: 1 1 40%;
+/* 页面限宽居中（主区打开时防无限拉伸），滚动权归视图本身（leaf 原生滚动） */
+.qk-page {
+	max-width: var(--file-line-width);
+	margin: 0 auto;
+	padding-bottom: var(--size-4-6);
 }
 
 .qk-empty {
@@ -34,15 +21,9 @@
 	gap: 8px;
 }
 
-/* 页面限宽居中（防主区无限拉伸），滚动权归视图本身（leaf 原生滚动） */
-.qk-page {
-	max-width: var(--file-line-width);
-	margin: 0 auto;
-	padding-bottom: var(--size-4-6);
-}
-
 /* 模块底块：共用官方「设置组」表面（SettingGroup 的 --setting-items-* 变量族，
-   同 openplug 口径）——不自绘灰底，主题覆写时跟随换肤；圆角 --radius-l 12px。 */
+   同 openplug 口径）——不自绘灰底，主题覆写时跟随换肤；圆角 --radius-l 12px。
+   details 折叠账号行也吃同一表面，内部自带 padding。 */
 .qk-card {
 	background-color: var(
 		--setting-items-background,
@@ -52,7 +33,6 @@
 	border: var(--setting-items-border-width, 0)
 		solid
 		var(--setting-items-border-color, var(--background-modifier-border));
-	padding: var(--size-4-3);
 	margin-bottom: 10px;
 }
 
@@ -60,45 +40,8 @@
 	color: var(--text-muted);
 }
 
-.qk-card-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin-bottom: 8px;
-}
-
-.qk-card-title {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-	min-width: 0;
-}
-
-/* 卡片标题 = 服务商名（用户拍板：取消分组后上移进卡头） */
-.qk-card-provider {
-	font-weight: 600;
-}
-
-.qk-card-alias {
-	/* 别名降为灰色小号副文本（用户拍板） */
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.qk-card-plan {
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-}
-
-.qk-card-actions {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	flex-shrink: 0;
+.qk-card-error-text {
+	color: var(--text-error);
 }
 
 .qk-captured {
@@ -106,30 +49,120 @@
 	font-size: var(--font-ui-smaller);
 }
 
-.qk-card-error-text {
-	color: var(--text-error);
+/* ===== 账号折叠列表（EasySync details/summary 口径） ===== */
+
+.qk-account {
+	padding: 0;
+	overflow: hidden;
 }
 
-.qk-card-body {
+/* 折叠行：chevron + 服务商名 + 灰别名 + 总%右锚；fill 层即总进度条（用户拍板：行色显总量） */
+.qk-row {
+	position: relative;
 	display: flex;
-	gap: 20px;
-	align-items: stretch;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 12px;
+	cursor: pointer;
+	list-style: none;
 }
 
-.qk-info {
-	flex: 0 0 34%;
+.qk-row::-webkit-details-marker {
+	display: none;
+}
+
+.qk-collapse-icon {
+	display: flex;
+	color: var(--text-muted);
+	transition: transform 100ms ease;
+}
+
+details[open] > .qk-row .qk-collapse-icon {
+	transform: rotate(90deg);
+}
+
+.qk-row-fill {
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 0%;
+	background: var(--interactive-accent);
+	opacity: 0.16;
+	border-radius: inherit;
+	pointer-events: none;
+	transition: width 200ms ease;
+}
+
+.qk-row-text {
+	position: relative;
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	flex: 1;
+}
+
+/* 卡片标题 = 服务商名（用户拍板：取消分组后上移进折叠行） */
+.qk-card-provider {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+/* 别名降为灰色小号副文本（用户拍板） */
+.qk-card-alias {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.qk-row .qk-pct {
+	flex: none;
+}
+
+/* ===== 展开体 ===== */
+
+.qk-account-body {
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
-	gap: 6px;
-	border-right: 1px solid var(--background-modifier-border);
-	padding-right: 16px;
+	gap: 10px;
+	padding: 2px 12px 12px;
+}
+
+.qk-account-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.qk-plan-title {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+}
+
+.qk-error-line {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+/* extras 键值（方舟绝对值），横向换行不占左栏 */
+.qk-info {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 4px 16px;
 }
 
 .qk-info-row {
 	display: flex;
 	justify-content: space-between;
 	gap: 8px;
+	flex: 1 1 40%;
 	font-size: var(--font-ui-small);
 }
 
@@ -143,20 +176,19 @@
 	white-space: nowrap;
 }
 
-.qk-bars {
-	flex: 1;
+.qk-windows {
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
-	gap: 10px;
+	gap: 8px;
 }
 
-/* 窗口块标题行：窗口名 + 重置时间居左，百分比右缘锚点；进度条下移通栏左起（用户拍板） */
-.qk-window-head {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-	margin-bottom: 6px;
+/* ===== 窗口行（用户拍板融合单行）：label | 高条内嵌% | 重置时间右 ===== */
+
+.qk-window-row {
+	display: grid;
+	grid-template-columns: 64px 1fr auto;
+	align-items: center;
+	gap: 10px;
 	font-size: var(--font-ui-small);
 }
 
@@ -166,37 +198,56 @@
 }
 
 .qk-bar {
-	height: 8px;
+	position: relative;
+	height: 22px;
 	background: var(--background-modifier-border);
-	border-radius: 4px;
+	border-radius: var(--radius-m);
 	overflow: hidden;
 }
 
 .qk-bar-fill {
-	height: 100%;
-	border-radius: 4px;
+	position: absolute;
+	inset: 0 auto 0 0;
 	background: var(--interactive-accent);
+	border-radius: inherit;
+	transition: width 200ms ease;
 }
 
-/* 百分比是行内主锚点（用户拍板）：放大加重跳出，右缘对齐保持垂直刻度线；单位缩小变灰 */
-.qk-window-pct {
-	margin-left: auto;
-	text-align: right;
+/* 百分比嵌条居中，主锚点（用户拍板）；≥60% 落在主题色上切反色 */
+.qk-pct {
 	font-size: var(--font-ui-medium);
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 }
 
-.qk-window-pct-unit {
+.qk-bar .qk-pct {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-normal);
+}
+
+.qk-pct-on-fill {
+	color: var(--text-on-accent);
+}
+
+.qk-pct-unit {
 	margin-left: 1px;
 	color: var(--text-muted);
 	font-size: 0.75em;
 	font-weight: 400;
 }
 
+.qk-bar .qk-pct-on-fill .qk-pct-unit {
+	color: var(--text-on-accent);
+	opacity: 0.8;
+}
+
 .qk-window-reset {
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
 }
-

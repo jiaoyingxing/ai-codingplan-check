@@ -37,4 +37,12 @@ describe("formatResetCountdown", () => {
 		expect(formatResetCountdown(now + (22 * 24 + 13) * 3600000, now)).toBe("22 天 13 小时后重置");
 		expect(formatResetCountdown(now + 3 * 86400000, now)).toBe("3 天后重置");
 	});
+
+	it("compact 紧凑排版去空格，信息量不变", () => {
+		expect(formatResetCountdown(now + (22 * 24 + 13) * 3600000, now, true)).toBe("22天13小时后重置");
+		expect(formatResetCountdown(now + (13 * 60 + 47) * 60000, now, true)).toBe("13小时47分后重置");
+		expect(formatResetCountdown(now + 45 * 60000, now, true)).toBe("45分钟后重置");
+		expect(formatResetCountdown(now + 3 * 86400000, now, true)).toBe("3天后重置");
+		expect(formatResetCountdown(null, now, true)).toBe("");
+	});
 });

@@ -4,14 +4,19 @@ import { getAdapter } from "./adapters";
 import { formatPercent, formatResetCountdown } from "./format";
 import { STR } from "./strings";
 import { describeError } from "./settings";
-import type { AccountRecord, ProviderId, QuotaSnapshot } from "./types";
+import type { AccountRecord, QuotaSnapshot } from "./types";
 
 export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
 
-/** 额度面板主页：右侧栏常驻视图，账号卡片流——卡头=服务商名+别名，窗口块=标题行+通栏进度条。
- *  分组标题已取消（用户拍板）；后续计划把分组做成顶部可切换/排序（本轮仅登记不实施）。 */
+/** 额度面板主页：固定左侧栏（EasySync 口径）。账号折叠列表——
+ *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，取约束最紧窗口）；
+ *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
+ *  页动作在内容顶部 nav-header（刷新全部/打开设置/全部展开收起），不用 view header 重复入口；
+ *  分组顶部可切换/排序为后续计划（CURRENT_STATUS 下一步）。 */
 export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
+	/** 账号折叠态（重绘与单账号刷新后保持；默认收起）。 */
+	private expanded = new Map<string, boolean>();
 
 	constructor(leaf: WorkspaceLeaf, plugin: AiCodingplanCheckPlugin) {
 		super(leaf);
@@ -32,37 +37,73 @@ export class QuotaView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass("qk-view");
-		this.addAction("refresh-cw", STR.refreshAll, () => this.renderPanel());
 		this.renderPanel();
 	}
 
 	async onClose(): Promise<void> {}
 
-	/** 全量重绘（入口/全部刷新用）；单卡刷新走卡内按钮，不重建整板。页面限宽居中，滚动权归 leaf。 */
+	/** 全量重绘（入口/页头刷新用）；单账号刷新只重建其 details 内部，折叠态不丢。页面限宽居中，滚动权归 leaf。 */
 	private renderPanel(): void {
 		const { contentEl } = this;
 		contentEl.empty();
 		const page = contentEl.createDiv("qk-page");
+		this.renderToolbar(page);
 		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
 		if (accounts.length === 0) {
 			this.renderEmptyState(page);
 			return;
 		}
-		const body = page.createDiv("qk-body");
-		const byProvider = new Map<ProviderId, AccountRecord[]>();
+		const list = page.createDiv("qk-list");
 		for (const account of accounts) {
-			const group = byProvider.get(account.provider) ?? [];
-			group.push(account);
-			byProvider.set(account.provider, group);
+			// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多份快照、展开体内分段渲染。
+			const details = list.createEl("details", "qk-account qk-card");
+			details.toggleAttribute("open", this.expanded.get(account.id) ?? false);
+			details.addEventListener("toggle", () => this.expanded.set(account.id, details.open));
+			this.renderRow(details.createEl("summary", "qk-row"), account);
+			const body = details.createDiv("qk-account-body");
+			body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+			void this.fetchAndRender(account, details, body);
 		}
-		for (const group of byProvider.values()) {
-			for (const account of group) {
-				// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多张快照、渲染多张卡。
-				const slot = body.createDiv("qk-account-slot");
-				slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-				void this.fetchAndRender(account, slot);
-			}
-		}
+	}
+
+	/** 页头动作行（EasySync 口径：原生 nav-header + clickable-icon nav-action-button + aria-label）。 */
+	private renderToolbar(container: HTMLElement): void {
+		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
+		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
+		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
+		this.createNavButton(buttons, "chevrons-up-down", STR.expandAll, (btn) => {
+			const items = Array.from(container.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
+			const target = items.some((item) => !item.open);
+			for (const item of items) item.open = target;
+			setIcon(btn, target ? "chevrons-down-up" : "chevrons-up-down");
+			btn.setAttribute("aria-label", target ? STR.collapseAll : STR.expandAll);
+		});
+	}
+
+	private createNavButton(
+		container: HTMLElement,
+		icon: string,
+		label: string,
+		onClick: (button: HTMLButtonElement) => void,
+	): HTMLButtonElement {
+		const button = container.createEl("button", {
+			cls: "clickable-icon nav-action-button",
+			attr: { "aria-label": label, type: "button" },
+		});
+		setIcon(button, icon);
+		button.addEventListener("click", () => onClick(button));
+		return button;
+	}
+
+	/** 折叠行：chevron + 服务商名 + 灰别名 + 总%右锚；行背景 fill 层即总进度条（宽度取数后回填）。 */
+	private renderRow(summary: HTMLElement, account: AccountRecord): void {
+		const icon = summary.createDiv("qk-collapse-icon");
+		setIcon(icon, "chevron-right");
+		const text = summary.createDiv("qk-row-text");
+		text.createDiv({ text: getAdapter(account.provider)?.label ?? account.provider, cls: "qk-card-provider" });
+		text.createDiv({ text: account.alias, cls: "qk-card-alias" });
+		summary.createDiv("qk-row-fill");
+		summary.createDiv("qk-row-pct");
 	}
 
 	private renderEmptyState(container: HTMLElement): void {
@@ -76,95 +117,102 @@ export class QuotaView extends ItemView {
 		settingsBtn.addEventListener("click", () => this.plugin.openPluginSettings());
 	}
 
-	private async fetchAndRender(account: AccountRecord, slot: HTMLElement): Promise<void> {
+	private async fetchAndRender(account: AccountRecord, details: HTMLDetailsElement, body: HTMLElement): Promise<void> {
 		const adapter = getAdapter(account.provider);
 		if (!adapter) return;
 		const secret = this.app.secretStorage.getSecret(account.secretId);
 		if (!secret) {
-			this.renderErrorCard(slot, `${account.alias}：${STR.secretMissing}`, account);
+			this.renderErrorBody(body, `${account.alias}：${STR.secretMissing}`, account);
 			return;
 		}
 		try {
 			const snapshots = await adapter.fetchQuota(secret);
-			slot.empty();
-			for (const snapshot of snapshots) {
-				const card = slot.createDiv("qk-card");
-				this.renderSnapshotCard(card, account, snapshot);
-			}
+			this.renderAccountBody(details, body, account, snapshots);
 		} catch (error) {
-			this.renderErrorCard(slot, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
+			this.renderErrorBody(body, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
 		}
 	}
 
-	private renderErrorCard(slot: HTMLElement, message: string, account: AccountRecord): void {
-		slot.empty();
-		const card = slot.createDiv("qk-card");
-		card.addClass("qk-card-error");
-		const head = card.createDiv("qk-card-head");
-		head.createDiv({ text: message, cls: "qk-card-error-text" });
-		head.createDiv("qk-card-actions").appendChild(
+	private renderErrorBody(body: HTMLElement, message: string, account: AccountRecord): void {
+		body.empty();
+		const line = body.createDiv("qk-error-line");
+		line.createDiv({ text: message, cls: "qk-card-error-text" });
+		line.appendChild(
 			this.createRefreshIcon(() => {
-				slot.empty();
-				slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-				void this.fetchAndRender(account, slot);
+				body.empty();
+				body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+				void this.fetchAndRenderByCard(body, account);
 			}),
 		);
 	}
 
-	private renderSnapshotCard(card: HTMLElement, account: AccountRecord, snapshot: QuotaSnapshot): void {
-		card.empty();
-		const captured = new Date(snapshot.capturedAt).toLocaleTimeString();
+	/** 从行内元素反查所属 details 后重取（错误态/单账号刷新共用路径）。 */
+	private fetchAndRenderByCard(inner: HTMLElement, account: AccountRecord): void {
+		const details = inner.closest<HTMLDetailsElement>("details.qk-account");
+		if (!details) return;
+		const body = details.querySelector<HTMLElement>(".qk-account-body");
+		if (!body) return;
+		body.empty();
+		body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+		void this.fetchAndRender(account, details, body);
+	}
 
-		const head = card.createDiv("qk-card-head");
-		const title = head.createDiv("qk-card-title");
-		// 取消分组（用户拍板）：服务商名升为卡片标题，别名降为小号灰色副文本。
-		title.createDiv({ text: getAdapter(account.provider)?.label ?? account.provider, cls: "qk-card-provider" });
-		title.createDiv({ text: account.alias, cls: "qk-card-alias" });
-		if (snapshot.planName) title.createDiv({ text: snapshot.planName, cls: "qk-card-plan" });
-		const actions = head.createDiv("qk-card-actions");
-		actions.createDiv({ text: `${STR.capturedAt} ${captured}`, cls: "qk-captured" });
-		// 刷新以账号槽位为单位：一凭证多套餐时槽内有多张卡，需整体重取。
-		actions.appendChild(
-			this.createRefreshIcon(() => {
-				const slot = card.closest(".qk-account-slot") ?? card;
-				slot.empty();
-				slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-				void this.fetchAndRender(account, slot as HTMLElement);
-			}),
-		);
+	private renderAccountBody(
+		details: HTMLDetailsElement,
+		body: HTMLElement,
+		account: AccountRecord,
+		snapshots: QuotaSnapshot[],
+	): void {
+		body.empty();
+		if (snapshots.length === 0) return;
+		// 行背景总进度条 + 行尾总%锚点：取约束最紧窗口（最大已用），不新增信息位。
+		const total = Math.min(Math.max(...snapshots.flatMap((s) => s.windows.map((w) => w.usedPercent))), 100);
+		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
+		rowFill?.setCssStyles({ width: `${total}%` });
+		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
+		if (rowPct) {
+			rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
+			rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
+		}
 
-		const bodyEl = card.createDiv("qk-card-body");
-		// 厂商名已由分组标题承担，左栏只放真实 extras；无 extras 不渲染左栏（进度条占满整行）。
-		if (snapshot.extras.length > 0) {
-			const info = bodyEl.createDiv("qk-info");
-			for (const extra of snapshot.extras) {
-				const row = info.createDiv("qk-info-row");
-				row.createDiv({ text: extra.label, cls: "qk-info-key" });
-				row.createDiv({ text: extra.value, cls: "qk-info-value" });
+		const latest = snapshots[snapshots.length - 1];
+		const meta = body.createDiv("qk-account-meta");
+		meta.createDiv({ text: `${STR.capturedAt} ${new Date(latest.capturedAt).toLocaleTimeString()}`, cls: "qk-captured" });
+		// 刷新以账号为单位：一凭证多套餐时展开体内有多段快照，需整体重取。
+		meta.appendChild(this.createRefreshIcon(() => this.fetchAndRenderByCard(body, account)));
+
+		for (const snapshot of snapshots) {
+			if (snapshot.planName) body.createDiv({ text: snapshot.planName, cls: "qk-plan-title" });
+			// 厂商名已由折叠行承担，块内只放真实 extras；无 extras 不渲染。
+			if (snapshot.extras.length > 0) {
+				const info = body.createDiv("qk-info");
+				for (const extra of snapshot.extras) {
+					const row = info.createDiv("qk-info-row");
+					row.createDiv({ text: extra.label, cls: "qk-info-key" });
+					row.createDiv({ text: extra.value, cls: "qk-info-value" });
+				}
+			}
+			const windows = body.createDiv("qk-windows");
+			for (const window of snapshot.windows) {
+				const row = windows.createDiv("qk-window-row");
+				row.createDiv({ text: window.label, cls: "qk-window-label" });
+				const pct = formatPercent(window.usedPercent);
+				const bar = row.createDiv("qk-bar");
+				const fill = bar.createDiv("qk-bar-fill");
+				fill.setCssStyles({ width: `${pct}%` });
+				// 三家 API 原生都是"已用"口径，统一主题色（用户拍板：不加分档色）；百分比嵌条居中（用户拍板融合）。
+				const pctEl = bar.createDiv("qk-pct");
+				pctEl.createSpan({ text: pct, cls: "qk-pct-num" });
+				pctEl.createSpan({ text: "%", cls: "qk-pct-unit" });
+				// 填充过半（≥60%）时文字整体落在主题色上，切换为反色保证可读。
+				if (window.usedPercent >= 60) pctEl.addClass("qk-pct-on-fill");
+				const reset = formatResetCountdown(window.resetsAt, Date.now(), true);
+				if (reset) row.createDiv({ text: reset, cls: "qk-window-reset" });
 			}
 		}
-
-		const bars = bodyEl.createDiv("qk-bars");
-		for (const window of snapshot.windows) {
-			const block = bars.createDiv("qk-window");
-			// 标题行：窗口名 + 重置时间（用户拍板：并入小标题后），百分比右缘锚点；进度条下移通栏左起。
-			const headLine = block.createDiv("qk-window-head");
-			headLine.createDiv({ text: window.label, cls: "qk-window-label" });
-			const reset = formatResetCountdown(window.resetsAt);
-			if (reset) headLine.createDiv({ text: reset, cls: "qk-window-reset" });
-			// 百分比是行内主锚点（用户拍板）：数字加重放大、单位缩小变灰，右缘对齐成垂直刻度线。
-			const pct = formatPercent(window.usedPercent);
-			const pctCell = headLine.createDiv("qk-window-pct");
-			pctCell.createSpan({ text: pct, cls: "qk-window-pct-num" });
-			pctCell.createSpan({ text: "%", cls: "qk-window-pct-unit" });
-
-			// 三家 API 原生都是"已用"口径：条越满用得越多，颜色统一主题色（用户拍板：不加分档色）。
-			const bar = block.createDiv("qk-bar");
-			const fill = bar.createDiv("qk-bar-fill");
-			fill.setCssStyles({ width: `${pct}%` });		}
 	}
 
-	/** 刷新图标按钮（用户拍板：文字按钮→图标）：原生 clickable-icon + lucide refresh-cw，aria-label 与 tooltip 双报。 */
+	/** 单账号刷新图标（原生 clickable-icon + lucide，aria-label 与 tooltip 双报）。 */
 	private createRefreshIcon(onRefresh: () => void): HTMLElement {
 		const icon = createDiv("clickable-icon qk-refresh-icon");
 		setIcon(icon, "refresh-cw");

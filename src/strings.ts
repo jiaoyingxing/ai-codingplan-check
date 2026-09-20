@@ -7,6 +7,8 @@ export const STR = {
 	panelTitle: "AI 编程套餐额度",
 	refreshAll: "全部刷新",
 	refresh: "刷新",
+	expandAll: "全部展开",
+	collapseAll: "全部收起",
 	loading: "查询中…",
 	noAccounts: "还没有账号，先到设置里添加一个。",
 	openSettings: "打开设置",

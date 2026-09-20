@@ -19,11 +19,15 @@ export default class AiCodingplanCheckPlugin extends Plugin {
 		});
 	}
 
-	/** 打开/聚焦额度面板主页（右侧栏常驻视图；已存在则聚焦，不叠开）。 */
+	/** 打开/聚焦额度面板主页（固定左侧栏，EasySync activateView 口径：已有 leaf 则聚焦，不叠开）。 */
 	async activateView(): Promise<void> {
 		const { workspace } = this.app;
 		const existing = workspace.getLeavesOfType(VIEW_TYPE_QUOTA_PANEL);
-		const leaf = existing.length > 0 ? existing[0] : workspace.getRightLeaf(false);
+		if (existing.length > 0) {
+			await workspace.revealLeaf(existing[0]);
+			return;
+		}
+		const leaf = workspace.getLeftLeaf(false);
 		if (!leaf) return;
 		await leaf.setViewState({ type: VIEW_TYPE_QUOTA_PANEL, active: true });
 		await workspace.revealLeaf(leaf);
