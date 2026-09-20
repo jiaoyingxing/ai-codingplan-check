@@ -1,7 +1,7 @@
 {
 	"id": "ai-codingplan-check",
 	"name": "AI CodingPlan Check",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.11.4",
 	"description": "查询 AI 编程订阅套餐剩余额度（OpenCode Go / Command Code / 火山方舟），支持多账号多套餐.",
 	"author": "Jiao Yingxing",
