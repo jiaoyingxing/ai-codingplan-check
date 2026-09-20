@@ -156,7 +156,6 @@ export class QuotaView extends ItemView {
 
 			const reset = formatResetCountdown(window.resetsAt);
 			if (reset) block.createDiv({ text: reset, cls: "qk-window-reset" });
-			if (window.rateLimited) block.createDiv({ text: "已限速", cls: "qk-window-limited" });
 		}
 	}
 }

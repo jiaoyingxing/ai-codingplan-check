@@ -201,8 +201,3 @@
 	font-size: var(--font-ui-smaller);
 }
 
-.qk-window-limited {
-	margin: 2px 0 0 74px;
-	color: var(--text-error);
-	font-size: var(--font-ui-smaller);
-}
