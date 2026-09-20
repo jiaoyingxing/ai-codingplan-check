@@ -7,6 +7,8 @@ import type { AccountRecord, ProviderAdapter, ProviderId } from "./types";
 export class QuotaSettingTab extends PluginSettingTab {
 	plugin: AiCodingplanCheckPlugin;
 	private accountGroup: SettingGroup | null = null;
+	/** 跨设备同步组：开关/更新副本后局部重绘只清 listEl 重建行，不叠组、不动整页。 */
+	private syncGroup: SettingGroup | null = null;
 
 	constructor(app: App, plugin: AiCodingplanCheckPlugin) {
 		super(app, plugin);
@@ -23,24 +25,51 @@ export class QuotaSettingTab extends PluginSettingTab {
 		this.renderMobileSync();
 	}
 
-	/** 移动端同步组（20260920 文案与流程精简）：动作随状态变化——未开启「开启同步」，已开启「更新副本」+「停用」。 */
+	/** 跨设备同步组（20260920 两行化）：行1 开关承载开/停（开→口令弹窗，取消回弹；关→清副本，可逆免确认）；
+	 *  行2 口令行仅在开启后出现，承接换口令与补副本。无标题轻分组，行1 名称即区块身份，不与分组标题重复。 */
 	private renderMobileSync(): void {
-		const group = new SettingGroup(this.containerEl);
-		group.setHeading(STR.mobileSyncHeading);
-		const accounts = this.plugin.settings.accounts;
-		const enabled = accounts.some((a) => a.encSecret);
-		let passphrase = "";
+		if (!this.syncGroup || !this.syncGroup.listEl.isConnected) {
+			this.syncGroup = new SettingGroup(this.containerEl);
+		}
+		const group = this.syncGroup;
+		group.listEl.empty();
+		const copiedCount = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
+		const enabled = copiedCount > 0;
 		group.addSetting((setting) => {
 			setting
 				.setName(STR.mobileSyncName)
-				.setDesc(
-					enabled
-						? STR.mobileSyncDescOn.replace(
-								"{n}",
-								String(accounts.filter((a) => a.encSecret).length),
-							)
-						: STR.mobileSyncDescOff,
-				)
+				.setDesc(enabled ? STR.mobileSyncDescOn.replace("{n}", String(copiedCount)) : STR.mobileSyncDescOff)
+				.addToggle((toggle) =>
+					toggle.setValue(enabled).onChange((value) => {
+						void (async () => {
+							if (value) {
+								const passphrase = await new SyncPassphraseModal(this.app).awaitPassphrase();
+								if (!passphrase) {
+									this.renderMobileSync();
+									return;
+								}
+								try {
+									await this.plugin.setMobileSyncPassphrase(passphrase);
+									new Notice(STR.mobileSyncEnabled);
+								} catch (error) {
+									new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
+								}
+							} else {
+								// 停用可逆（重新输口令即恢复），无需确认。
+								await this.plugin.setMobileSyncPassphrase(null);
+								new Notice(STR.mobileSyncDisabled);
+							}
+							this.renderMobileSync();
+						})();
+					}),
+				);
+		});
+		if (!enabled) return;
+		let passphrase = "";
+		group.addSetting((setting) => {
+			setting
+				.setName(STR.mobileSyncPassName)
+				.setDesc(STR.mobileSyncPassDesc)
 				.addText((text) => {
 					text.inputEl.type = "password";
 					text.setPlaceholder(STR.mobileSyncPlaceholder).onChange((value) => {
@@ -48,7 +77,7 @@ export class QuotaSettingTab extends PluginSettingTab {
 					});
 				})
 				.addButton((button) => {
-					button.setButtonText(enabled ? STR.mobileSyncUpdate : STR.mobileSyncEnable).setCta();
+					button.setButtonText(STR.mobileSyncUpdate).setCta();
 					button.onClick(() => {
 						void (async () => {
 							if (passphrase.length < 8) {
@@ -58,8 +87,8 @@ export class QuotaSettingTab extends PluginSettingTab {
 							button.buttonEl.disabled = true;
 							try {
 								await this.plugin.setMobileSyncPassphrase(passphrase);
-								new Notice(enabled ? STR.mobileSyncUpdated : STR.mobileSyncEnabled);
-								this.display();
+								new Notice(STR.mobileSyncUpdated);
+								this.renderMobileSync();
 							} catch (error) {
 								new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
 							} finally {
@@ -68,18 +97,6 @@ export class QuotaSettingTab extends PluginSettingTab {
 						})();
 					});
 				});
-			// 停用可逆（重新输口令即恢复），无需确认；普通文字按钮，次于主动作。
-			if (enabled) {
-				setting.addButton((extra) =>
-					extra.setButtonText(STR.mobileSyncDisable).onClick(() => {
-						void (async () => {
-							await this.plugin.setMobileSyncPassphrase(null);
-							new Notice(STR.mobileSyncDisabled);
-							this.display();
-						})();
-					}),
-				);
-			}
 		});
 	}
 
@@ -88,8 +105,9 @@ export class QuotaSettingTab extends PluginSettingTab {
 		const group = this.accountGroup;
 		if (!group) return;
 		group.listEl.empty();
+		// 行首只留主动作按钮：再设行名会与按钮文字重复表达（用户拍板 20260920）。
 		group.addSetting((setting) => {
-			setting.setName(STR.addAccount).addButton((button) =>
+			setting.addButton((button) =>
 				button.setButtonText(STR.addAccount).setCta().onClick(() => {
 					this.plugin.openAccountWizard(() => this.renderAccounts());
 				}),
@@ -351,6 +369,53 @@ export class MobileUnlockModal extends Modal {
 		this.resolve?.(value.trim() || null);
 		this.resolve = null;
 		this.close();
+	}
+
+	onClose(): void {
+		this.resolve?.(null);
+		this.resolve = null;
+	}
+}
+
+/** 设置同步口令框：开关打开跨设备同步时输入；确认返回口令（少于 8 位拦截在本框内），取消/关闭返回 null。口令只在内存流转。 */
+export class SyncPassphraseModal extends Modal {
+	private resolve: ((value: string | null) => void) | null = null;
+
+	/** 打开并等待口令；确认返回口令，取消/关闭返回 null。 */
+	awaitPassphrase(): Promise<string | null> {
+		this.open();
+		return new Promise<string | null>((resolve) => {
+			this.resolve = resolve;
+		});
+	}
+
+	onOpen(): void {
+		this.titleEl.setText(STR.syncPassTitle);
+		let passphrase = "";
+		const submit = () => {
+			const value = passphrase.trim();
+			if (value.length < 8) {
+				new Notice(STR.mobileSyncTooShort);
+				return;
+			}
+			this.resolve?.(value);
+			this.resolve = null;
+			this.close();
+		};
+		const setting = new Setting(this.contentEl)
+			.setName(STR.mobileSyncPassName)
+			.setDesc(STR.syncPassDesc)
+			.addText((text) => {
+				text.inputEl.type = "password";
+				text.setPlaceholder(STR.mobileSyncPlaceholder);
+				text.onChange((value) => {
+					passphrase = value;
+				});
+			});
+		setting.addButton((button) => button.setButtonText(STR.mobileSyncEnable).setCta().onClick(() => submit()));
+		setting.controlEl.addEventListener("keydown", (evt: KeyboardEvent) => {
+			if (evt.key === "Enter") submit();
+		});
 	}
 
 	onClose(): void {

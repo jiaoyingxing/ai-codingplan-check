@@ -112,13 +112,14 @@ export class QuotaView extends ItemView {
 		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
 		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
 		this.createNavButton(buttons, "arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
+		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
+		// 展开/收起固定最右（用户拍板）：设置按钮在其左侧。
 		this.collapseButtonEl = this.createNavButton(buttons, "chevrons-up-down", STR.expandAll, () => {
 			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
 			const target = items.some((item) => !item.open);
 			for (const item of items) item.open = target;
 			this.updateCollapseToggle();
 		});
-		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
 	}
 
 	/** 从 DOM 推导展开/收起按钮的图标与报名：有收起行 → 呈现"全部展开"，全开 → 呈现"全部收起"。 */

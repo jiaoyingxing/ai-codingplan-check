@@ -25,8 +25,8 @@ describe("用户文案禁词与定稿口径", () => {
 		expect(text).toContain("跨设备同步");
 		expect(text).toContain("同步口令");
 		expect(text).toContain("加密副本");
+		expect(text).toContain("设置同步口令");
 		expect(text).toContain("开启同步");
 		expect(text).toContain("更新副本");
-		expect(text).toContain("停用");
 	});
 });
