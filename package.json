@@ -1,6 +1,6 @@
 {
   "name": "ai-codingplan-check",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "AI CodingPlan Check / AI编程套餐查询 — 查询 OpenCode Go、Command Code、火山方舟等 AI 编程订阅套餐的剩余额度",
   "main": "main.js",
   "scripts": {
