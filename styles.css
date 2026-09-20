@@ -41,14 +41,6 @@
 	padding-bottom: var(--size-4-6);
 }
 
-/* 分组标题承担层级 */
-.qk-group-title {
-	margin: 14px 0 6px;
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-	font-weight: 600;
-}
-
 /* 模块底块：共用官方「设置组」表面（SettingGroup 的 --setting-items-* 变量族，
    同 openplug 口径）——不自绘灰底，主题覆写时跟随换肤；圆角 --radius-l 12px。 */
 .qk-card {
@@ -83,9 +75,15 @@
 	min-width: 0;
 }
 
+/* 卡片标题 = 服务商名（用户拍板：取消分组后上移进卡头） */
+.qk-card-provider {
+	font-weight: 600;
+}
+
 .qk-card-alias {
-	/* 账号身份降为次层（用户拍板）：行内主锚点让给百分比 */
-	font-weight: 500;
+	/* 别名降为灰色小号副文本（用户拍板） */
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -153,16 +151,17 @@
 	gap: 10px;
 }
 
-.qk-window-line {
-	display: grid;
-	grid-template-columns: 64px 1fr 56px;
-	align-items: center;
-	gap: 10px;
+/* 窗口块标题行：窗口名 + 重置时间居左，百分比右缘锚点；进度条下移通栏左起（用户拍板） */
+.qk-window-head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 6px;
 	font-size: var(--font-ui-small);
 }
 
 .qk-window-label {
-	color: var(--text-muted);
+	color: var(--text-normal);
 	white-space: nowrap;
 }
 
@@ -181,6 +180,7 @@
 
 /* 百分比是行内主锚点（用户拍板）：放大加重跳出，右缘对齐保持垂直刻度线；单位缩小变灰 */
 .qk-window-pct {
+	margin-left: auto;
 	text-align: right;
 	font-size: var(--font-ui-medium);
 	font-weight: 600;
@@ -196,7 +196,6 @@
 }
 
 .qk-window-reset {
-	margin: 2px 0 0 74px;
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 }
