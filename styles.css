@@ -1,10 +1,15 @@
 /* AI CodingPlan Check —— 全部基于 Obsidian 原生 CSS 变量，不引入外部 UI 体系 */
 
-/* 主视图：工具行固定（nav-header 不随滚动），滚动权移入 .qk-scroll（同核心资源管理器布局） */
-.qk-view {
+/* 主视图：工具行贴顶（用户拍板：去多余空白；原生 .view-content 12px 上内边距压掉，左右保留卡片边距），滚动权在 .qk-scroll */
+.workspace-leaf-content > .view-content.qk-view {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	padding: 0 var(--size-4-3) var(--size-4-3);
+}
+
+.qk-view .nav-header {
+	padding-top: var(--size-4-1);
 }
 
 .qk-scroll {
@@ -99,6 +104,7 @@ details[open] > .qk-row .qk-collapse-icon {
 	width: 0%;
 	background: var(--interactive-accent);
 	opacity: 0.16;
+	/* 圆角与内部进度条统一 --radius-s（用户拍板） */
 	border-radius: var(--radius-s);
 	pointer-events: none;
 	transition: width 200ms ease;
@@ -199,7 +205,7 @@ details[open] > .qk-row .qk-collapse-icon {
 
 .qk-window-row {
 	display: grid;
-	grid-template-columns: 64px 1fr 96px;
+	grid-template-columns: 64px 1fr 80px;
 	align-items: center;
 	gap: 10px;
 	font-size: var(--font-ui-small);
@@ -219,20 +225,22 @@ details[open] > .qk-row .qk-collapse-icon {
 .qk-bar {
 	height: 22px;
 	background: var(--background-modifier-border);
-	/* 圆角收小（用户拍板：太圆），条与填充一致 */
-	border-radius: 3px;
+	/* 圆角与外侧行背景统一 --radius-s（用户拍板） */
+	border-radius: var(--radius-s);
 	overflow: hidden;
 }
 
 .qk-bar-fill {
 	position: absolute;
 	inset: 0 auto 0 0;
+	/* 填充做浅（用户拍板：太深）：accent 混白，主题换色时跟随 */
 	background: var(--interactive-accent);
+	background: color-mix(in srgb, var(--interactive-accent) 50%, white);
 	border-radius: inherit;
 	transition: width 200ms ease;
 }
 
-/* 百分比嵌条居中，主锚点（用户拍板）；≥60% 落在主题色上切反色。字号收敛到 small 两档制 */
+/* 百分比嵌条居中，主锚点（用户拍板）；浅色填充上深色文字常驻，不做反色切换。字号收敛 small/smaller 两档 */
 .qk-pct {
 	font-size: var(--font-ui-small);
 	font-weight: 600;
@@ -249,20 +257,11 @@ details[open] > .qk-row .qk-collapse-icon {
 	color: var(--text-normal);
 }
 
-.qk-pct-on-fill {
-	color: var(--text-on-accent);
-}
-
 .qk-pct-unit {
 	margin-left: 1px;
 	color: var(--text-muted);
 	font-size: 0.75em;
 	font-weight: 400;
-}
-
-.qk-pct-on-fill .qk-pct-unit {
-	color: var(--text-on-accent);
-	opacity: 0.8;
 }
 
 /* 窄列退化（用户拍板）：条轨放不下百分比时只显示百分比，避免文字被裁或条瘦成针 */
@@ -274,16 +273,6 @@ details[open] > .qk-row .qk-collapse-icon {
 	.qk-bar-cell > .qk-pct {
 		position: static;
 		justify-content: flex-end;
-	}
-
-	.qk-bar-cell > .qk-pct.qk-pct-on-fill,
-	.qk-bar-cell > .qk-pct.qk-pct-on-fill .qk-pct-unit {
-		color: var(--text-normal);
-		opacity: 1;
-	}
-
-	.qk-bar-cell > .qk-pct .qk-pct-unit {
-		color: var(--text-muted);
 	}
 }
 

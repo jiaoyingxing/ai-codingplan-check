@@ -317,12 +317,10 @@ export class QuotaView extends ItemView {
 			const bar = cell.createDiv("qk-bar");
 			const fill = bar.createDiv("qk-bar-fill");
 			fill.setCssStyles({ width: `${pct}%` });
-			// 三家 API 原生都是"已用"口径，统一主题色（用户拍板：不加分档色）；百分比嵌条居中（用户拍板融合）。
+			// 三家 API 原生都是"已用"口径，统一主题浅色（用户拍板：填充做浅）；百分比嵌条居中，深色常驻（浅底白字不可读）。
 			const pctEl = cell.createDiv("qk-pct");
-			pctEl.createSpan({ text: pct, cls: "qk-pct-num" });
-			pctEl.createSpan({ text: "%", cls: "qk-pct-unit" });
-				// 填充过半（≥60%）时文字整体落在主题色上，切换为反色保证可读。
-				if (window.usedPercent >= 60) pctEl.addClass("qk-pct-on-fill");
+				pctEl.createSpan({ text: pct, cls: "qk-pct-num" });
+				pctEl.createSpan({ text: "%", cls: "qk-pct-unit" });
 				const reset = formatResetCountdown(window.resetsAt, Date.now(), true);
 				if (reset) row.createDiv({ text: reset, cls: "qk-window-reset" });
 			}
