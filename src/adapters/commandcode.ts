@@ -151,7 +151,7 @@ export const commandCodeAdapter: ProviderAdapter = {
 	label: "Command Code",
 	credentialLabel: "API Key",
 	credentialHint: "commandcode.ai 的 API Key",
-	async fetchQuota(secret: string): Promise<QuotaSnapshot> {
+	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const whoami = await getJson("/alpha/whoami", secret);
 		if (whoami.status === 401 || whoami.status === 403) {
 			throw new Error(`HTTP ${whoami.status}：密钥被拒绝（${snippet(JSON.stringify(whoami.json ?? ""))}）`);
@@ -180,7 +180,7 @@ export const commandCodeAdapter: ProviderAdapter = {
 
 		const snapshot = composeQuotaSnapshot(credits, subscription, summary);
 		if (!snapshot) throw new Error("无任何可用额度数据（余额/订阅/用量均不可得）");
-		return snapshot;
+		return [snapshot];
 	},
 };
 

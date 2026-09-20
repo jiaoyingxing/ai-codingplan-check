@@ -57,9 +57,10 @@ export class QuotaView extends ItemView {
 			const adapter = getAdapter(provider);
 			body.createDiv({ text: adapter?.label ?? provider, cls: "qk-group-title" });
 			for (const account of group) {
-				const card = body.createDiv("qk-card");
-				card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-				void this.fetchAndRender(account, card);
+				// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多张快照、渲染多张卡。
+				const slot = body.createDiv("qk-account-slot");
+				slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+				void this.fetchAndRender(account, slot);
 			}
 		}
 	}
@@ -75,32 +76,36 @@ export class QuotaView extends ItemView {
 		settingsBtn.addEventListener("click", () => this.plugin.openPluginSettings());
 	}
 
-	private async fetchAndRender(account: AccountRecord, card: HTMLElement): Promise<void> {
+	private async fetchAndRender(account: AccountRecord, slot: HTMLElement): Promise<void> {
 		const adapter = getAdapter(account.provider);
 		if (!adapter) return;
 		const secret = this.app.secretStorage.getSecret(account.secretId);
 		if (!secret) {
-			this.renderErrorCard(card, `${account.alias}：${STR.secretMissing}`, account);
+			this.renderErrorCard(slot, `${account.alias}：${STR.secretMissing}`, account);
 			return;
 		}
 		try {
-			const snapshot = await adapter.fetchQuota(secret);
-			this.renderSnapshotCard(card, account, snapshot);
+			const snapshots = await adapter.fetchQuota(secret);
+			slot.empty();
+			for (const snapshot of snapshots) {
+				const card = slot.createDiv("qk-card");
+				this.renderSnapshotCard(card, account, snapshot);
+			}
 		} catch (error) {
-			this.renderErrorCard(card, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
+			this.renderErrorCard(slot, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
 		}
 	}
 
-	private renderErrorCard(card: HTMLElement, message: string, account: AccountRecord): void {
-		card.empty();
+	private renderErrorCard(slot: HTMLElement, message: string, account: AccountRecord): void {
+		slot.empty();
+		const card = slot.createDiv("qk-card");
 		card.addClass("qk-card-error");
 		const head = card.createDiv("qk-card-head");
 		head.createDiv({ text: message, cls: "qk-card-error-text" });
 		head.createDiv("qk-card-actions").createEl("button", { text: STR.refresh }).addEventListener("click", () => {
-			card.removeClass("qk-card-error");
-			card.empty();
-			card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-			void this.fetchAndRender(account, card);
+			slot.empty();
+			slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+			void this.fetchAndRender(account, slot);
 		});
 	}
 
@@ -114,10 +119,12 @@ export class QuotaView extends ItemView {
 		if (snapshot.planName) title.createDiv({ text: snapshot.planName, cls: "qk-card-plan" });
 		const actions = head.createDiv("qk-card-actions");
 		actions.createDiv({ text: `${STR.capturedAt} ${captured}`, cls: "qk-captured" });
+		// 刷新以账号槽位为单位：一凭证多套餐时槽内有多张卡，需整体重取。
 		actions.createDiv().createEl("button", { text: STR.refresh }).addEventListener("click", () => {
-			card.empty();
-			card.createDiv({ text: STR.loading, cls: "qk-card-loading" });
-			void this.fetchAndRender(account, card);
+			const slot = card.closest(".qk-account-slot") ?? card;
+			slot.empty();
+			slot.createDiv({ text: STR.loading, cls: "qk-card-loading" });
+			void this.fetchAndRender(account, slot as HTMLElement);
 		});
 
 		const bodyEl = card.createDiv("qk-card-body");

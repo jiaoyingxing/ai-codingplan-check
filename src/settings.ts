@@ -2,7 +2,7 @@ import { App, Modal, Notice, PluginSettingTab, Setting, SettingGroup, TextCompon
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter, listAdapters } from "./adapters";
 import { STR } from "./strings";
-import type { AccountRecord, ProviderId } from "./types";
+import type { AccountRecord, ProviderAdapter, ProviderId } from "./types";
 
 export class QuotaSettingTab extends PluginSettingTab {
 	plugin: AiCodingplanCheckPlugin;
@@ -75,7 +75,31 @@ export class QuotaSettingTab extends PluginSettingTab {
 	}
 }
 
-/** 添加/编辑账号共享表单：编辑时别名预填、凭证留空不修改、provider 只读；测通才写入。 */
+/** 带眼睛切换的密钥输入行：眼睛在输入框左侧（用户拍板），value 存真实值、掩码靠 type=password。 */
+function addSecretField(setting: Setting, initialValue: string): { getValue: () => string } {
+	let value = initialValue;
+	let revealed = false;
+	let text: TextComponent | null = null;
+	setting.addExtraButton((button) =>
+		button.setIcon("eye").setTooltip(STR.revealKey).onClick(() => {
+			revealed = !revealed;
+			if (text) text.inputEl.type = revealed ? "text" : "password";
+			button.setIcon(revealed ? "eye-off" : "eye");
+		}),
+	);
+	setting.addText((t) => {
+		text = t;
+		t.inputEl.type = "password";
+		t.setValue(initialValue);
+		t.onChange((v) => {
+			value = v.trim();
+		});
+	});
+	return { getValue: () => value };
+}
+
+/** 添加/编辑账号共享表单：编辑时别名预填、凭证回填钥匙串现值（密文）、provider 只读；
+ *  双凭证厂商（AK/SK）显示两个密钥框；有变化才重新测通并覆写。 */
 export class AccountModal extends Modal {
 	plugin: AiCodingplanCheckPlugin;
 	onSaved: (() => void) | undefined;
@@ -98,6 +122,8 @@ export class AccountModal extends Modal {
 		let saveButton: HTMLButtonElement | null = null;
 		const saveLabel = () => (this.testing ? STR.wizardTesting : editing ? STR.wizardSave : STR.wizardTestAndSave);
 
+		const adapterOf = (): ProviderAdapter | undefined => (provider ? getAdapter(provider) : undefined);
+
 		const providerSetting = new Setting(this.contentEl).setName(STR.wizardProvider);
 		if (editing) {
 			providerSetting.setDesc((provider ? getAdapter(provider)?.label : "") ?? "");
@@ -107,6 +133,7 @@ export class AccountModal extends Modal {
 				dropdown.onChange((value) => {
 					provider = value as ProviderId;
 					refreshHint();
+					refreshSecond();
 				});
 			});
 		}
@@ -118,33 +145,32 @@ export class AccountModal extends Modal {
 		});
 
 		const credentialSetting = new Setting(this.contentEl).setName(STR.wizardCredential);
-		// 编辑态回填钥匙串现值：value 存真实 key，靠 type=password 渲染圆点，眼睛切明文（官方密钥行模式）。
+		// 编辑态回填钥匙串现值：单凭证原样回填；双凭证拆 JSON 回填两框。
 		const storedSecret = editing ? (this.app.secretStorage.getSecret(this.account!.secretId) ?? "") : "";
-		let credential = storedSecret;
+		const adapterNow = adapterOf();
+		const parts = editing && adapterNow?.splitCredential ? adapterNow.splitCredential(storedSecret) : [storedSecret];
+		const cred1 = addSecretField(credentialSetting, parts[0] ?? "");
 		const refreshHint = () => {
-			credentialSetting.setDesc(
-				editing ? STR.credentialEditHint : (provider ? getAdapter(provider)?.credentialHint : "") ?? "",
-			);
+			const adapter = adapterOf();
+			credentialSetting.setDesc(editing ? STR.credentialEditHint : adapter?.credentialHint ?? "");
 		};
 		refreshHint();
-		let credentialText: TextComponent | null = null;
-		let revealed = false;
-		// 眼睛在输入框左侧（用户拍板）：先注册 extra button 再注册输入框。
-		credentialSetting.addExtraButton((button) =>
-			button.setIcon("eye").setTooltip(STR.revealKey).onClick(() => {
-				revealed = !revealed;
-				if (credentialText) credentialText.inputEl.type = revealed ? "text" : "password";
-				button.setIcon(revealed ? "eye-off" : "eye");
-			}),
-		);
-		credentialSetting.addText((text) => {
-			credentialText = text;
-			text.inputEl.type = "password";
-			text.setValue(credential);
-			text.onChange((value) => {
-				credential = value.trim();
-			});
-		});
+
+		let cred2: { getValue: () => string } | null = null;
+		const credential2Setting = new Setting(this.contentEl);
+		const refreshSecond = () => {
+			const adapter = adapterOf();
+			if (adapter?.credential2) {
+				credential2Setting.setName(adapter.credential2.label).setDesc(
+					editing ? STR.credentialEditHint : adapter.credential2.hint,
+				);
+				if (!cred2) cred2 = addSecretField(credential2Setting, parts[1] ?? "");
+				credential2Setting.settingEl.show();
+			} else {
+				credential2Setting.settingEl.hide();
+			}
+		};
+		refreshSecond();
 
 		new Setting(this.contentEl)
 			.addButton((button) => button.setButtonText(STR.wizardCancel).onClick(() => this.close()))
@@ -152,10 +178,14 @@ export class AccountModal extends Modal {
 				saveButton = button.buttonEl;
 				button.setButtonText(saveLabel()).setCta().onClick(async () => {
 					if (this.testing) return;
-					const adapter = provider ? getAdapter(provider) : undefined;
+					const adapter = adapterOf();
 					if (!adapter) return;
-					const keyChanged = credential !== storedSecret;
-					if (keyChanged && !credential) {
+					const secondValue = cred2 ? cred2.getValue() : "";
+					const stored = adapter.joinCredential
+						? adapter.joinCredential(cred1.getValue(), secondValue)
+						: cred1.getValue();
+					const keyChanged = stored !== storedSecret;
+					if (keyChanged && !stored) {
 						new Notice(`${STR.wizardCredential}不能为空`);
 						return;
 					}
@@ -165,11 +195,14 @@ export class AccountModal extends Modal {
 					try {
 						let testSummary = "";
 						if (keyChanged) {
-							const snapshot = await adapter.fetchQuota(credential);
-							testSummary = snapshot.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · ");
+							const snapshots = await adapter.fetchQuota(stored);
+							testSummary = snapshots
+								.map((s) => s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · "))
+								.join(" / ");
 							if (editing && this.account) {
-								this.app.secretStorage.setSecret(this.account.secretId, credential);
+								this.app.secretStorage.setSecret(this.account.secretId, stored);
 							} else {
+								// id 只生成一次：secretId 与账号记录必须指向同一把钥匙。
 								const id = crypto.randomUUID();
 								this.account = {
 									id,
@@ -178,7 +211,7 @@ export class AccountModal extends Modal {
 									secretId: `account-${id}`,
 									enabled: true,
 								};
-								this.app.secretStorage.setSecret(this.account.secretId, credential);
+								this.app.secretStorage.setSecret(this.account.secretId, stored);
 							}
 						}
 						const record = this.account!;

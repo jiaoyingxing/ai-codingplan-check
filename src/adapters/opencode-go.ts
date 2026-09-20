@@ -78,7 +78,7 @@ export const opencodeGoAdapter: ProviderAdapter = {
 	label: "OpenCode Go",
 	credentialLabel: "API Key",
 	credentialHint: "opencode.ai Go 计划的 API Key",
-	async fetchQuota(secret: string): Promise<QuotaSnapshot> {
+	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		// throw:false：4xx/5xx 也要拿到响应体，错误里带状态码与片段，别让宿主抛笼统错误。
 		const response = await requestUrl({
 			url: USAGE_URL,
@@ -95,7 +95,7 @@ export const opencodeGoAdapter: ProviderAdapter = {
 			console.warn("[ai-codingplan-check] OpenCode Go 原始响应：", raw);
 			throw new Error(`HTTP ${response.status} 响应无法解析为已知用量结构：${snippet(raw)}`);
 		}
-		return snapshot;
+		return [snapshot];
 	},
 };
 
