@@ -18,6 +18,8 @@ export interface CommandCodeAccount {
 }
 
 export interface CommandCodeCredits {
+	/** 月度套餐额度（credits，美元面额）；本期窗口的 cap。 */
+	monthly: number;
 	remaining: number;
 	windows: QuotaWindow[];
 }
@@ -100,7 +102,7 @@ export function parseCreditsInfo(payload: unknown): CommandCodeCredits | null {
 		windowFromLimit("weekly", "近一周", limits.weekly),
 	].filter((w): w is QuotaWindow => w !== null);
 	if (monthly + purchased + free === 0 && windows.length === 0) return null;
-	return { remaining: monthly + purchased + free, windows };
+	return { monthly: monthly, remaining: monthly + purchased + free, windows };
 }
 
 export function parseSubscriptionInfo(payload: unknown): CommandCodeSubscription | null {
@@ -176,24 +178,44 @@ export const commandCodeAdapter: ProviderAdapter = {
 		const summary =
 			summaryRes && summaryRes.status < 400 ? parseSummaryInfo(summaryRes.json) : null;
 
-		if (!credits && !subscription && !summary) {
-			throw new Error("无任何可用额度数据（余额/订阅/用量均不可得）");
-		}
-
-		const extras: QuotaExtra[] = [];
-		if (credits) extras.push({ label: "余额", value: `$${credits.remaining.toFixed(2)}` });
-		if (summary?.totalCost != null) extras.push({ label: "本期费用", value: `$${summary.totalCost.toFixed(2)}` });
-		if (summary?.totalCount != null) extras.push({ label: "本期请求", value: `${summary.totalCount}` });
-		if (subscription?.periodEndMs) {
-			const days = Math.ceil((subscription.periodEndMs - Date.now()) / 86_400_000);
-			if (days >= 0) extras.push({ label: "剩余天数", value: `${days} 天` });
-		}
-
-		return {
-			planName: subscription?.planId ?? undefined,
-			windows: credits?.windows ?? [],
-			extras,
-			capturedAt: Date.now(),
-		};
+		const snapshot = composeQuotaSnapshot(credits, subscription, summary);
+		if (!snapshot) throw new Error("无任何可用额度数据（余额/订阅/用量均不可得）");
+		return snapshot;
 	},
 };
+
+/** 组装快照。CC 无原生月窗口：用 本期费用÷月度套餐额度 推导"本期"条，重置点=账单周期结束，
+ *  与其他家三窗口对齐（真实数据自洽验证：70 − 69.90 = 0.10 余额）。 */
+export function composeQuotaSnapshot(
+	credits: CommandCodeCredits | null,
+	subscription: CommandCodeSubscription | null,
+	summary: CommandCodeSummary | null,
+	now = Date.now(),
+): QuotaSnapshot | null {
+	if (!credits && !subscription && !summary) return null;
+	const extras: QuotaExtra[] = [];
+	if (credits) extras.push({ label: "余额", value: `$${credits.remaining.toFixed(2)}` });
+	if (summary?.totalCost != null) extras.push({ label: "本期费用", value: `$${summary.totalCost.toFixed(2)}` });
+	if (summary?.totalCount != null) extras.push({ label: "本期请求", value: `${summary.totalCount}` });
+	if (subscription?.periodEndMs) {
+		const days = Math.ceil((subscription.periodEndMs - now) / 86_400_000);
+		if (days >= 0) extras.push({ label: "剩余天数", value: `${days} 天` });
+	}
+	const windows = credits ? [...credits.windows] : [];
+	if (subscription && summary?.totalCost != null && credits && credits.monthly > 0) {
+		const usedPercent = clampPercent((summary.totalCost / credits.monthly) * 100);
+		windows.push({
+			key: "monthly",
+			label: "本期",
+			usedPercent,
+			resetsAt: subscription.periodEndMs,
+			rateLimited: usedPercent >= 100,
+		});
+	}
+	return {
+		planName: subscription?.planId ?? undefined,
+		windows,
+		extras,
+		capturedAt: now,
+	};
+}
