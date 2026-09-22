@@ -5,16 +5,9 @@ import { formatPercent, formatResetCountdown } from "./format";
 import { decryptSecret } from "./secret-crypto";
 import { STR } from "./strings";
 import { MobileUnlockModal, describeError } from "./settings";
-import type { AccountRecord, QuotaSnapshot } from "./types";
+import type { AccountRecord, QuotaSnapshot, SortDir, SortKey } from "./types";
 
 export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
-
-type SortKey = "provider" | "usage" | "reset";
-type SortDir = "asc" | "desc";
-interface SortMode {
-	key: SortKey;
-	dir: SortDir;
-}
 
 function providerLabel(account: AccountRecord): string {
 	return getAdapter(account.provider)?.label ?? account.provider;
@@ -36,7 +29,8 @@ function accountTotal(snapshots: QuotaSnapshot[]): number {
  *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
  *  页动作在内容顶部 nav-header 固定工具行（刷新全部/排序 Menu/全部展开收起/打开设置），
  *  列表在 .qk-scroll 内独立滚动（桌面侧栏 app.css 隐藏 .view-header，addAction 不可见）；
- *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），快照缓存驱动额度/重置排序。 */
+ *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），快照缓存驱动额度/重置排序；
+ *  排序选择持久化在 settings.sort（唯一状态源，本视图不另存副本）。 */
 export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
 	/** 账号折叠态（重绘与单账号刷新后保持；默认收起）。 */
@@ -45,8 +39,6 @@ export class QuotaView extends ItemView {
 	private cache = new Map<string, QuotaSnapshot[]>();
 	/** 行元素索引（排序时移动 DOM 节点用，不重建不重取）。 */
 	private rowEls = new Map<string, HTMLDetailsElement>();
-	/** 当前排序（会话内记忆，不持久化）。 */
-	private sort: SortMode = { key: "provider", dir: "asc" };
 	/** 展开/收起按钮引用：列表建好后与每次点击后按 DOM 重刷图标（EasySync collapseToggleButtonEl 口径）。 */
 	private collapseButtonEl: HTMLButtonElement | null = null;
 
@@ -159,7 +151,7 @@ export class QuotaView extends ItemView {
 
 	/** 排序：套餐名按本地化比较；额度/重置时间用缓存快照，无数据账号恒排末尾。返回新数组不改设置原序。 */
 	private sortAccounts(accounts: AccountRecord[]): AccountRecord[] {
-		const { key, dir } = this.sort;
+		const { key, dir } = this.plugin.settings.sort;
 		const sign = dir === "asc" ? 1 : -1;
 		return [...accounts].sort((a, b) => {
 			if (key === "provider") {
@@ -177,7 +169,7 @@ export class QuotaView extends ItemView {
 	private sortMetric(account: AccountRecord): number | null {
 		const snapshots = this.cache.get(account.id);
 		if (!snapshots || snapshots.length === 0) return null;
-		if (this.sort.key === "usage") return accountTotal(snapshots);
+		if (this.plugin.settings.sort.key === "usage") return accountTotal(snapshots);
 		const resets = snapshots
 			.flatMap((s) => s.windows.map((w) => w.resetsAt))
 			.filter((t): t is number => t !== null);
@@ -195,16 +187,19 @@ export class QuotaView extends ItemView {
 		}
 	}
 
-	/** 排序菜单（核心资源管理器排序按钮同款：addAction 触发 Menu，勾选当前项，同组两个方向为一对）。 */
+	/** 排序菜单（核心资源管理器排序按钮同款：addAction 触发 Menu，勾选当前项，同组两个方向为一对）。
+	 *  选中即写 settings 持久化（重启沿用），再重排既有行。 */
 	private showSortMenu(evt: MouseEvent): void {
 		const menu = new Menu();
+		const current = this.plugin.settings.sort;
 		const add = (label: string, key: SortKey, dir: SortDir) =>
 			menu.addItem((item) =>
 				item
 					.setTitle(label)
-					.setChecked(this.sort.key === key && this.sort.dir === dir)
+					.setChecked(current.key === key && current.dir === dir)
 					.onClick(() => {
-						this.sort = { key, dir };
+						this.plugin.settings.sort = { key, dir };
+						void this.plugin.saveSettings();
 						this.applySort();
 					}),
 			);

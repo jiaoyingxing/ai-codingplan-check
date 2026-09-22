@@ -1,5 +1,8 @@
 import type { ProviderAdapter, ProviderId } from "../types";
 import { commandCodeAdapter } from "./commandcode";
+import { glmAdapter } from "./glm";
+import { kimiAdapter } from "./kimi";
+import { miniMaxAdapter } from "./minimax";
 import { opencodeGoAdapter } from "./opencode-go";
 import { volcengineAdapter } from "./volcengine";
 
@@ -9,6 +12,9 @@ const REGISTRY: Record<ProviderId, ProviderAdapter> = {
 	"opencode-go": opencodeGoAdapter,
 	commandcode: commandCodeAdapter,
 	volcengine: volcengineAdapter,
+	glm: glmAdapter,
+	"kimi-for-coding": kimiAdapter,
+	minimax: miniMaxAdapter,
 };
 
 export function getAdapter(providerId: ProviderId): ProviderAdapter | undefined {

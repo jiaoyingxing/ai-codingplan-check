@@ -3,7 +3,7 @@ import { QuotaSettingTab, AccountModal } from "./settings";
 import { STR } from "./strings";
 import { VIEW_TYPE_QUOTA_PANEL, QuotaView } from "./view";
 import { encryptSecret } from "./secret-crypto";
-import { DEFAULT_SETTINGS, type AccountRecord, type PluginSettings } from "./types";
+import { DEFAULT_SETTINGS, normalizeSort, type AccountRecord, type PluginSettings } from "./types";
 
 export default class AiCodingplanCheckPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -77,7 +77,8 @@ export default class AiCodingplanCheckPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		const data = (await this.loadData()) as Partial<PluginSettings> | null;
-		this.settings = { ...DEFAULT_SETTINGS, ...data };
+		// sort 单独收敛（其余字段仍走浅合并）：旧 data.json 无此字段，值也可能被手改坏。
+		this.settings = { ...DEFAULT_SETTINGS, ...data, sort: normalizeSort(data?.sort) };
 	}
 
 	async saveSettings(): Promise<void> {

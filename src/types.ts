@@ -1,6 +1,6 @@
 // 数据模型：账号 = 一份凭证 + 它查出的套餐快照（docs/core/PROJECT_CONTEXT.md）
 
-export type ProviderId = "opencode-go" | "commandcode" | "volcengine";
+export type ProviderId = "opencode-go" | "commandcode" | "volcengine" | "glm" | "kimi-for-coding" | "minimax";
 
 /** data.json 里持久化的账号记录；凭证明文在 SecretStorage（运行时唯一明文源）。
  *  encSecret 是口令加密的凭证副本（用户拍板 20260920）：随 data.json 同步到移动端，手机首次解锁后写入本地 SecretStorage。 */
@@ -15,7 +15,7 @@ export interface AccountRecord {
 	encSecret?: string;
 }
 
-/** 一条额度窗口：三家共同的"已用百分比 + 重置时间"形状。 */
+/** 一条额度窗口：各厂商共同的"已用百分比 + 重置时间"形状。 */
 export interface QuotaWindow {
 	/** 窗口标识，如 rolling / weekly / monthly。 */
 	key: string;
@@ -33,7 +33,7 @@ export interface QuotaExtra {
 	value: string;
 }
 
-/** 一次查询的套餐快照；windows 期望按 5h/周/月固定顺序。 */
+/** 一次查询的套餐快照；windows 按窗口由短到长排列，末位 = 该套餐的账单周期窗口（行总用量取末位）。 */
 export interface QuotaSnapshot {
 	planName?: string;
 	windows: QuotaWindow[];
@@ -59,10 +59,33 @@ export interface ProviderAdapter {
 	fetchQuota(secret: string): Promise<QuotaSnapshot[]>;
 }
 
+/** 列表排序键：套餐名（provider 标签）/ 总用量 / 重置时间。 */
+export type SortKey = "provider" | "usage" | "reset";
+export type SortDir = "asc" | "desc";
+
+export interface SortMode {
+	key: SortKey;
+	dir: SortDir;
+}
+
 export interface PluginSettings {
 	accounts: AccountRecord[];
+	/** 列表排序选择（持久化：面板 Menu 一选即存，重启与面板关开沿用）。 */
+	sort: SortMode;
 }
+
+export const DEFAULT_SORT: SortMode = { key: "provider", dir: "asc" };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
 	accounts: [],
+	sort: { ...DEFAULT_SORT },
 };
+
+/** 收敛 data.json 里的排序：旧版本无此字段，也可能被手改成未知值——
+ *  非法一律回默认（排序键不认识会让排序静默失效，20260920 已吃过静默失效的亏）。 */
+export function normalizeSort(value: unknown): SortMode {
+	const candidate = value as Partial<SortMode> | null | undefined;
+	const key = candidate?.key;
+	if (key !== "provider" && key !== "usage" && key !== "reset") return { ...DEFAULT_SORT };
+	return { key, dir: candidate?.dir === "desc" ? "desc" : "asc" };
+}
