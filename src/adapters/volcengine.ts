@@ -160,7 +160,7 @@ export function responseError(body: unknown): { code: string; message: string } 
 	return code || message ? { code, message } : null;
 }
 
-function isAuthErrorCode(code: string): boolean {
+export function isAuthErrorCode(code: string): boolean {
 	const c = code.toLowerCase();
 	return (
 		c.includes("auth") ||
@@ -290,6 +290,15 @@ function codingLevel(label: string): string | null {
 	return null;
 }
 
+/** D16 控制台链实证的多形态兜底：Percent 缺失时用 used/total 对计算（社区多实现字段名漂移）。 */
+function usedTotalPercent(item: Record<string, unknown>): number | undefined {
+	const used = num(item.Used) ?? num(item.UsedCount) ?? num(item.UsedCalls) ?? num(item.Consumption);
+	const total =
+		num(item.Total) ?? num(item.TotalCount) ?? num(item.Limit) ?? num(item.Quota) ?? num(item.Max) ?? num(item.TotalQuota);
+	if (used === undefined || total === undefined || total <= 0) return undefined;
+	return (used / total) * 100;
+}
+
 /** Coding Plan：Result.QuotaUsage/Usages/Details[]，Level 字段实测 session/weekly/monthly，只给已用百分比。 */
 export function parseCodingTiers(result: unknown): QuotaWindow[] {
 	const windows: QuotaWindow[] = [];
@@ -310,7 +319,7 @@ export function parseCodingTiers(result: unknown): QuotaWindow[] {
 		const label = codingLevel(level);
 		if (!label) continue;
 		const percent =
-			num(item.Percent) ?? num(item.UsedPercent) ?? num(item.UsagePercent) ?? 0;
+			num(item.Percent) ?? num(item.UsedPercent) ?? num(item.UsagePercent) ?? usedTotalPercent(item) ?? 0;
 		windows.push({
 			key: level,
 			label,
@@ -322,7 +331,7 @@ export function parseCodingTiers(result: unknown): QuotaWindow[] {
 	return windows;
 }
 
-function resultOf(body: unknown): unknown {
+export function resultOf(body: unknown): unknown {
 	return isRecord(body) && "Result" in body ? body.Result : body;
 }
 

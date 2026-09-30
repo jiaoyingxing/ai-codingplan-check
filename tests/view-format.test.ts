@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPercent, formatResetCountdown } from "../src/format";
+import { formatPercent, formatResetCountdown, toAmountText, withCurrencySymbol } from "../src/format";
 describe("formatPercent", () => {
 	it("最多两位小数并去尾零", () => {
 		expect(formatPercent(67.526)).toBe("67.53");
@@ -44,5 +44,26 @@ describe("formatResetCountdown", () => {
 		expect(formatResetCountdown(now + 3 * 86400000, now, true)).toBe("3天");
 		expect(formatResetCountdown(null, now, true)).toBe("");
 		expect(formatResetCountdown(now - 1000, now, true)).toBe("即将重置");
+	});
+});
+
+describe("toAmountText（余额型 §v1.2）", () => {
+	it("统一两位小数：数字、字符串、负值", () => {
+		expect(toAmountText("110.00")).toBe("110.00");
+		expect(toAmountText(49.58894)).toBe("49.59");
+		expect(toAmountText(-2.5)).toBe("-2.50");
+		expect(toAmountText(0)).toBe("0.00");
+	});
+	it("非法输入原样返回（上层兜底展示）", () => {
+		expect(toAmountText("abc")).toBe("abc");
+		expect(toAmountText(Number.NaN)).toBe("NaN");
+	});
+});
+
+describe("withCurrencySymbol（余额型 §v1.2 裁决③）", () => {
+	it("负号恒置于符号最前，面板按前缀负号识别红字", () => {
+		expect(withCurrencySymbol("¥", "110.00")).toBe("¥110.00");
+		expect(withCurrencySymbol("¥", "-2.50")).toBe("-¥2.50");
+		expect(withCurrencySymbol("$", "-0.01")).toBe("-$0.01");
 	});
 });

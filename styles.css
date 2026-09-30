@@ -135,6 +135,18 @@ details[open] > .qk-row .qk-collapse-icon {
 	flex: none;
 }
 
+/* 余额型金额槽位（§v1.2 候选②③）：数字等宽对齐 + 不换行兜底；窗口型的行尾 % 同走本槽位，无副作用。
+   负余额红字（候选③）走 .qk-neg（行尾金额与 extras 键值通用，--text-error 与错误文案同源）。 */
+.qk-row-pct {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.qk-neg {
+	color: var(--text-error);
+}
+
 /* ===== 展开体 ===== */
 
 .qk-account-body {
@@ -165,27 +177,46 @@ details[open] > .qk-row .qk-collapse-icon {
 	gap: 8px;
 }
 
-/* extras 键值（方舟绝对值），横向换行不占左栏 */
+/* extras 键值（方舟绝对值），横向换行不占左栏；容器查询锚点供券行窄列独占使用 */
 .qk-info {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
 	gap: 4px 16px;
+	container-type: inline-size;
 }
 
 .qk-info-row {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: space-between;
-	gap: 8px;
-	flex: 1 1 40%;
+	gap: 1px 8px;
+	/* 不拉伸、宽度随内容、min-width 兜住双列格位（20260930 排版 v4）：
+	   短对双列并排、长行（券/合计）自然独占，孤儿行不再横跨整行飞值 */
+	flex: 0 1 auto;
+	min-width: 40%;
 	font-size: var(--font-ui-small);
+}
+
+/* 带次要列的行紧凑左排（20260930 排版 v5）：宽列按双列格位与短对并排（奖励券双列填空），
+   窄列（≤340px）独占整行——v3 的散排只发生在窄列挤压，两头规则分开后互不干扰 */
+.qk-info-row.qk-has-detail {
+	justify-content: flex-start;
+	gap: 0 12px;
+}
+
+@container (max-width: 340px) {
+	.qk-info-row.qk-has-detail {
+		flex-basis: 100%;
+	}
 }
 
 .qk-info-key {
 	color: var(--text-muted);
 }
 
-.qk-info-value {
+.qk-info-value,
+.qk-info-detail {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

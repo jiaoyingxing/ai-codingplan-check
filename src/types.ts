@@ -1,6 +1,20 @@
 // 数据模型：账号 = 一份凭证 + 它查出的套餐快照（docs/core/PROJECT_CONTEXT.md）
 
-export type ProviderId = "opencode-go" | "commandcode" | "volcengine" | "glm" | "kimi-for-coding" | "minimax";
+export type ProviderId =
+	| "opencode-go"
+	| "commandcode"
+	| "volcengine"
+	| "volcengine-console"
+	| "glm"
+	| "kimi-for-coding"
+	| "minimax"
+	| "deepseek"
+	| "siliconflow"
+	| "siliconflow-cookie"
+	| "moonshot"
+	| "stepfun"
+	| "ppio"
+	| "mimo";
 
 /** data.json 里持久化的账号记录；凭证明文在 SecretStorage（运行时唯一明文源）。
  *  encSecret 是口令加密的凭证副本（用户拍板 20260920）：随 data.json 同步到移动端，手机首次解锁后写入本地 SecretStorage。 */
@@ -31,11 +45,17 @@ export interface QuotaWindow {
 export interface QuotaExtra {
 	label: string;
 	value: string;
+	/** 次要数值列（如代金券到期日 / 张数）：与 value 分列、进对齐账本（20260930 真号反馈），缺省留在双列键值区。 */
+	detail?: string;
 }
 
-/** 一次查询的套餐快照；windows 按窗口由短到长排列，末位 = 该套餐的账单周期窗口（行总用量取末位）。 */
+/** 一次查询的套餐快照；windows 按窗口由短到长排列，末位 = 该套餐的账单周期窗口（行总用量取末位）。
+ *  余额型快照（20260930 D14 / 方案单 §v1.2）：windows 为空数组，coreBalance = 展示就绪的核心余额
+ *  （含货币符号、负号最前；主币种口径见各适配器文件头）——行尾槽位显金额不画条，拆分与特殊额度进 extras。 */
 export interface QuotaSnapshot {
 	planName?: string;
+	/** 余额型核心余额（如 "¥110.00"、负值 "-¥2.50"）；缺省 = 窗口型，行尾槽位走总%口径。 */
+	coreBalance?: string;
 	windows: QuotaWindow[];
 	extras: QuotaExtra[];
 	capturedAt: number;

@@ -22,3 +22,16 @@ export function formatResetCountdown(resetsAt: number | null, now = Date.now(), 
 	const dayPart = hours % 24;
 	return dayPart > 0 ? `${days}${s}天${s}${dayPart}${s}小时${tail}` : `${days}${s}天${tail}`;
 }
+
+/** 金额显示文本：统一两位小数（"110.00"、49.58894 → "49.59"、-2.5 → "-2.50"）；
+ *  输入非法时原样转字符串返回，由上层兜底展示。 */
+export function toAmountText(value: string | number): string {
+	const parsed = typeof value === "number" ? value : Number(String(value).trim());
+	if (!Number.isFinite(parsed)) return String(value);
+	return parsed.toFixed(2);
+}
+
+/** 货币符号 + 金额组合：负号恒置于符号最前（如 "-¥2.50"）——面板按值的前缀负号识别红字（§v1.2 裁决③）。 */
+export function withCurrencySymbol(symbol: string, amount: string): string {
+	return amount.startsWith("-") ? `-${symbol}${amount.slice(1)}` : `${symbol}${amount}`;
+}

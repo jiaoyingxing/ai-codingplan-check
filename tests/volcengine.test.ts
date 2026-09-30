@@ -93,6 +93,16 @@ describe("parseCodingTiers（Coding Plan，只回已用百分比）", () => {
 		expect(parseCodingTiers({ Usages: [{ Type: "weekly", Percent: 6 }] }).map((w) => w.label)).toEqual(["近一周"]);
 		expect(parseCodingTiers({ Details: [{ Period: "monthly", Percent: 8 }] }).map((w) => w.label)).toEqual(["近一月"]);
 	});
+
+	it("多形态兜底（D16 控制台链）：Percent 缺失时用 used/total 对计算", () => {
+		expect(parseCodingTiers({ QuotaUsage: [{ Level: "monthly", Used: 25, Total: 100 }] })[0]?.usedPercent).toBe(25);
+		expect(parseCodingTiers({ QuotaUsage: [{ Level: "weekly", UsedCount: 1, TotalCount: 4 }] })[0]?.usedPercent).toBe(25);
+		expect(parseCodingTiers({ QuotaUsage: [{ Level: "session", UsedCalls: 3, Limit: 4 }] })[0]?.usedPercent).toBe(75);
+		// Percent 在场时优先，不走兜底
+		expect(parseCodingTiers({ QuotaUsage: [{ Level: "monthly", Percent: 10, Used: 99, Total: 100 }] })[0]?.usedPercent).toBe(10);
+		// used/total 残缺时维持旧口径（0%），不误报
+		expect(parseCodingTiers({ QuotaUsage: [{ Level: "monthly", Used: 25 }] })[0]?.usedPercent).toBe(0);
+	});
 });
 
 describe("双凭证拆合", () => {

@@ -277,7 +277,7 @@ export class AccountModal extends Modal {
 							if (keyChanged) {
 								const snapshots = await adapter.fetchQuota(stored);
 								testSummary = snapshots
-									.map((s) => s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · "))
+									.map((s) => s.coreBalance ?? s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · ")) // 余额型（§v1.2）：测通摘要显核心余额
 									.join(" / ");
 								if (editing && this.account) {
 									this.app.secretStorage.setSecret(this.account.secretId, stored);

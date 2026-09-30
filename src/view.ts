@@ -169,7 +169,14 @@ export class QuotaView extends ItemView {
 	private sortMetric(account: AccountRecord): number | null {
 		const snapshots = this.cache.get(account.id);
 		if (!snapshots || snapshots.length === 0) return null;
-		if (this.plugin.settings.sort.key === "usage") return accountTotal(snapshots);
+		if (this.plugin.settings.sort.key === "usage") {
+			// 余额型（§v1.2 裁决⑤）：无窗口快照不计 0%（原 accountTotal 会返回 0 参与排序），
+			// 按既有"无数据恒排末尾"规则处理；不新增排序选项。
+			const planPercents = snapshots
+				.filter((snapshot) => snapshot.windows.length > 0)
+				.map((snapshot) => snapshot.windows[snapshot.windows.length - 1].usedPercent);
+			return planPercents.length === 0 ? null : Math.max(0, Math.min(...planPercents, 100));
+		}
 		const resets = snapshots
 			.flatMap((s) => s.windows.map((w) => w.resetsAt))
 			.filter((t): t is number => t !== null);
@@ -297,10 +304,17 @@ export class QuotaView extends ItemView {
 		rowFill?.setCssStyles({ width: `${formatPercent(total)}%` });
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct) {
-			// 单账号刷新会重复进入本方法：先清空旧行尾数字再重填，否则百分比叠加显示。
+			// 单账号刷新会重复进入本方法：先清空旧行尾内容再重填，否则叠加显示。
 			rowPct.empty();
-			rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
-			rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
+			// 余额型（§v1.2）：无分母不画条（fill 恒 0），右锚槽位改显主币种金额；负余额红字（裁决③）。
+			const coreBalance = snapshots.find((snapshot) => snapshot.coreBalance)?.coreBalance;
+			if (coreBalance) {
+				const amountSpan = rowPct.createSpan({ text: coreBalance });
+				if (coreBalance.startsWith("-")) amountSpan.addClass("qk-neg");
+			} else {
+				rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
+				rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
+			}
 		}
 
 		const latest = snapshots[snapshots.length - 1];
@@ -312,14 +326,25 @@ export class QuotaView extends ItemView {
 		for (const snapshot of snapshots) {
 			if (snapshot.planName) body.createDiv({ text: snapshot.planName, cls: "qk-plan-title" });
 			// 厂商名已由折叠行承担，块内只放真实 extras；无 extras 不渲染。
+			// 单一容器自然双列（20260930 排版 v4 契约）：行 = 键 + 金额(+次要列) 不可拆段，
+			// 行不拉伸、按内容宽打包——短对双列并排，长行（券/合计）自然独占，段放不下整段折行不拆词。
 			if (snapshot.extras.length > 0) {
 				const info = body.createDiv("qk-info");
 				for (const extra of snapshot.extras) {
 					const row = info.createDiv("qk-info-row");
+					// 带次要列的行（代金券合计 / 券明细）独占一行、内容紧凑左排——宽窄一致，
+					// 避免 space-between 三段在宽面板被拉开散排（20260930 排版 v4 宿主证据后定稿）。
+					if (extra.detail) row.addClass("qk-has-detail");
 					row.createDiv({ text: extra.label, cls: "qk-info-key" });
-					row.createDiv({ text: extra.value, cls: "qk-info-value" });
+					const valueEl = row.createDiv({ text: extra.value, cls: "qk-info-value" });
+					// 负金额红字（§v1.2 裁决③）：欠费 / 后付费负余额在键值行同样生效。
+					if (extra.value.startsWith("-")) valueEl.addClass("qk-neg");
+					// 次要数值列（§v1.2 真号反馈）：金额与日期 / 张数分列，不合并成一个字符串。
+					if (extra.detail) row.createDiv({ text: extra.detail, cls: "qk-info-detail" });
 				}
 			}
+			// 余额型快照无窗口（§v1.2）：不创建窗口条容器，展开体只留 extras 键值行。
+			if (snapshot.windows.length === 0) continue;
 			const windows = body.createDiv("qk-windows");
 			for (const window of snapshot.windows) {
 			const row = windows.createDiv("qk-window-row");
