@@ -18,7 +18,8 @@ export interface CommandCodeAccount {
 }
 
 export interface CommandCodeCredits {
-	/** 月度套餐额度（credits，美元面额）；本期窗口的 cap。 */
+	/** 剩余月度额度（credits，≈美元面额）：API 原样值 monthlyCredits
+	 *  实为"剩余"而非总额度——随消费递减，且与本期 totalCost 之和恒等于账号总额度（2026-10-14 真号实测）。 */
 	monthly: number;
 	remaining: number;
 	windows: QuotaWindow[];
@@ -184,8 +185,9 @@ export const commandCodeAdapter: ProviderAdapter = {
 	},
 };
 
-/** 组装快照。CC 无原生月窗口：用 本期费用÷月度套餐额度 推导"本期"条，重置点=账单周期结束，
- *  与其他家三窗口对齐（真实数据自洽验证：70 − 69.90 = 0.10 余额）。 */
+/** 组装快照。CC 无原生月窗口：monthlyCredits 是剩余额度而非总额度（2026-10-14 真号实测），
+ *  故「近一月」条用 本期费用÷(本期费用+月度剩余额度) 推导，重置点=账单周期结束，
+ *  与其他家三窗口对齐（真实数据自洽验证：69.9/(69.9+0.1)=99.86%，余 0.10）。 */
 export function composeQuotaSnapshot(
 	credits: CommandCodeCredits | null,
 	subscription: CommandCodeSubscription | null,
@@ -202,15 +204,18 @@ export function composeQuotaSnapshot(
 		if (days >= 0) extras.push({ label: "剩余天数", value: `${days} 天` });
 	}
 	const windows = credits ? [...credits.windows] : [];
-	if (subscription && summary?.totalCost != null && credits && credits.monthly > 0) {
-		const usedPercent = clampPercent((summary.totalCost / credits.monthly) * 100);
-		windows.push({
-			key: "monthly",
-			label: "本期",
-			usedPercent,
-			resetsAt: subscription.periodEndMs,
-			rateLimited: usedPercent >= 100,
-		});
+	if (subscription && credits && summary?.totalCost != null) {
+		const totalQuota = summary.totalCost + credits.monthly;
+		if (totalQuota > 0) {
+			const usedPercent = clampPercent((summary.totalCost / totalQuota) * 100);
+			windows.push({
+				key: "monthly",
+				label: "近一月",
+				usedPercent,
+				resetsAt: subscription.periodEndMs,
+				rateLimited: usedPercent >= 100,
+			});
+		}
 	}
 	return {
 		planName: subscription?.planId ?? undefined,

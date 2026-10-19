@@ -1,4 +1,4 @@
-import { App, Modal, Notice, PluginSettingTab, Setting, SettingGroup, TextComponent } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, SettingDefinitionItem, SettingGroup, TextComponent } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter, listAdapters } from "./adapters";
 import { STR } from "./strings";
@@ -12,6 +12,9 @@ export class QuotaSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: AiCodingplanCheckPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+		// 设置窗左栏页签图标：宿主默认隐藏第三方插件行的图标元素，由 styles.css
+		// 按 data-setting-id 只放开本插件那一行（做法与姊妹插件 EasySync / Resojot 同源）。
+		this.icon = "gauge";
 	}
 
 	display(): void {
@@ -22,6 +25,102 @@ export class QuotaSettingTab extends PluginSettingTab {
 		this.accountGroup = new SettingGroup(containerEl);
 		this.renderAccounts();
 		this.renderMobileSync();
+	}
+
+	/**
+	 * 声明式设置定义（Obsidian ≥1.13；d.ts：`getSettingDefinitions`／`update()`／
+	 * `settingItems` 均 @since 1.13.0）。两组结构与 display() 回落逐行同构：
+	 * 账号组（无外侧标题，同 20260920 拍板）＋凭证导出组；行文案全部取自
+	 * src/strings.ts（本仓红线：用户可见文案只改 strings）。条件行（口令行）
+	 * 随定义数组按当前状态出现/消失，状态变化经 update() 重估。
+	 */
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		const copiedCount = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
+		const exportEnabled = copiedCount > 0;
+		return [
+			{
+				type: "group",
+				items: [
+					{
+						name: STR.accountsTitle,
+						render: (setting) => {
+							setting.addButton((button) =>
+								button.setButtonText(STR.addAccount).setCta().onClick(() => {
+									this.plugin.openAccountWizard(() => this.refreshAccounts());
+								}),
+							);
+						},
+					},
+					...(this.plugin.settings.accounts.length === 0
+						? [{ name: STR.accountEmpty }]
+						: this.plugin.settings.accounts.map((account) => ({
+							name: account.alias,
+							desc: getAdapter(account.provider)?.label ?? account.provider,
+							render: (setting: Setting) => this.configureAccountRow(setting, account),
+						}))),
+				],
+			},
+			{
+				type: "group",
+				heading: STR.exportHeading,
+				items: [
+					{
+						name: STR.exportCopyName,
+						desc: this.getExportToggleDesc(exportEnabled, copiedCount),
+						render: (setting) => this.configureExportToggleRow(setting, exportEnabled),
+					},
+					...(exportEnabled
+						? [{
+							name: STR.exportPassName,
+							desc: STR.exportPassDesc,
+							render: (setting: Setting) => this.configureExportPassRow(setting),
+						}]
+						: []),
+				],
+			},
+		];
+	}
+
+	/** 轨道判断：宿主把 getSettingDefinitions() 结果存 settingItems（@since 1.13.0，随 update() 填充）；<1.13 宿主无该字段。 */
+	private isDeclarativeTrack(): boolean {
+		const declarative = this as unknown as { settingItems?: unknown[] };
+		return declarative.settingItems !== undefined && declarative.settingItems.length > 0;
+	}
+
+	/** 轨道感知重渲染：声明式轨道一律 update()（严禁手动 display()，会把回落形态灌进声明式 DOM）；
+	 *  <1.13 回落 display()；经类型投影调更新方法（绕 obsidianmd/no-unsupported-api 静态版本缝）。 */
+	private rerenderTrack(): void {
+		if (this.isDeclarativeTrack()) {
+			const updateTab = this as unknown as { update?: () => void };
+			if (typeof updateTab.update === "function") {
+				updateTab.update();
+			}
+			return;
+		}
+		this.display();
+	}
+
+	/** 声明式与回落轨的账号区刷新分叉：回落保持组内局部重绘（原实现），声明式走 update()。 */
+	private refreshAccounts(): void {
+		if (this.isDeclarativeTrack()) {
+			this.rerenderTrack();
+			return;
+		}
+		this.renderAccounts();
+	}
+
+	/** 同上：凭证导出组刷新分叉。 */
+	private refreshMobileSync(): void {
+		if (this.isDeclarativeTrack()) {
+			this.rerenderTrack();
+			return;
+		}
+		this.renderMobileSync();
+	}
+
+	/** 开关行动态 desc（定义数组与回落 builder 共用，零文案漂移）。 */
+	private getExportToggleDesc(enabled: boolean, copiedCount: number): string {
+		return enabled ? STR.exportDescOn.replace("{n}", String(copiedCount)) : STR.exportDescOff;
 	}
 
 	/** 凭证导出组（20260920 三次拍板：弃用「同步」一词）：独立模块带外侧标题；
@@ -39,65 +138,75 @@ export class QuotaSettingTab extends PluginSettingTab {
 		group.addSetting((setting) => {
 			setting
 				.setName(STR.exportCopyName)
-				.setDesc(enabled ? STR.exportDescOn.replace("{n}", String(copiedCount)) : STR.exportDescOff)
-				.addToggle((toggle) =>
-					toggle.setValue(enabled).onChange((value) => {
-						void (async () => {
-							if (value) {
-								const passphrase = await new SyncPassphraseModal(this.app).awaitPassphrase();
-								if (!passphrase) {
-									this.renderMobileSync();
-									return;
-								}
-								try {
-									await this.plugin.setMobileSyncPassphrase(passphrase);
-									new Notice(STR.exportDone);
-								} catch (error) {
-									new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
-								}
-							} else {
-								// 关闭可逆（重新输口令即恢复），无需确认。
-								await this.plugin.setMobileSyncPassphrase(null);
-								new Notice(STR.exportDisabled);
-							}
-							this.renderMobileSync();
-						})();
-					}),
-				);
+				.setDesc(this.getExportToggleDesc(enabled, copiedCount));
+			this.configureExportToggleRow(setting, enabled);
 		});
 		if (!enabled) return;
-		let passphrase = "";
 		group.addSetting((setting) => {
 			setting
 				.setName(STR.exportPassName)
-				.setDesc(STR.exportPassDesc)
-				.addText((text) => {
-					text.inputEl.type = "password";
-					text.setPlaceholder(STR.exportPlaceholder).onChange((value) => {
-						passphrase = value.trim();
-					});
-				})
-				.addButton((button) => {
-					button.setButtonText(STR.exportUpdate).setCta();
-					button.onClick(() => {
-						void (async () => {
-							if (passphrase.length < 8) {
-								new Notice(STR.exportTooShort);
-								return;
-							}
-							button.buttonEl.disabled = true;
-							try {
-								await this.plugin.setMobileSyncPassphrase(passphrase);
-								new Notice(STR.exportUpdated);
-								this.renderMobileSync();
-							} catch (error) {
-								new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
-							} finally {
-								button.buttonEl.disabled = false;
-							}
-						})();
-					});
-				});
+				.setDesc(STR.exportPassDesc);
+			this.configureExportPassRow(setting);
+		});
+	}
+
+	/** 导出开关行控件（两轨道共用）：开→导出口令弹窗，取消回弹；关→清副本，可逆免确认。 */
+	private configureExportToggleRow(setting: Setting, enabled: boolean): void {
+		setting.addToggle((toggle) =>
+			toggle.setValue(enabled).onChange((value) => {
+				void (async () => {
+					if (value) {
+						const passphrase = await new SyncPassphraseModal(this.app).awaitPassphrase();
+						if (!passphrase) {
+							this.refreshMobileSync();
+							return;
+						}
+						try {
+							await this.plugin.setMobileSyncPassphrase(passphrase);
+							new Notice(STR.exportDone);
+						} catch (error) {
+							new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
+						}
+					} else {
+						// 关闭可逆（重新输口令即恢复），无需确认。
+						await this.plugin.setMobileSyncPassphrase(null);
+						new Notice(STR.exportDisabled);
+					}
+					this.refreshMobileSync();
+				})();
+			}),
+		);
+	}
+
+	/** 口令行控件（两轨道共用；仅开启后出现）：换口令与补副本。 */
+	private configureExportPassRow(setting: Setting): void {
+		let passphrase = "";
+		setting.addText((text) => {
+			text.inputEl.type = "password";
+			text.setPlaceholder(STR.exportPlaceholder).onChange((value) => {
+				passphrase = value.trim();
+			});
+		});
+		setting.addButton((button) => {
+			button.setButtonText(STR.exportUpdate).setCta();
+			button.onClick(() => {
+				void (async () => {
+					if (passphrase.length < 8) {
+						new Notice(STR.exportTooShort);
+						return;
+					}
+					button.buttonEl.disabled = true;
+					try {
+						await this.plugin.setMobileSyncPassphrase(passphrase);
+						new Notice(STR.exportUpdated);
+						this.refreshMobileSync();
+					} catch (error) {
+						new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
+					} finally {
+						button.buttonEl.disabled = false;
+					}
+				})();
+			});
 		});
 	}
 
@@ -110,7 +219,7 @@ export class QuotaSettingTab extends PluginSettingTab {
 		group.addSetting((setting) => {
 			setting.setName(STR.accountsTitle).addButton((button) =>
 				button.setButtonText(STR.addAccount).setCta().onClick(() => {
-					this.plugin.openAccountWizard(() => this.renderAccounts());
+					this.plugin.openAccountWizard(() => this.refreshAccounts());
 				}),
 			);
 		});
@@ -126,32 +235,37 @@ export class QuotaSettingTab extends PluginSettingTab {
 			group.addSetting((setting) => {
 				// 开关即状态显示，desc 只留厂商；控件顺序：编辑、删除、开关（用户拍板）。
 				setting.setName(account.alias).setDesc(adapter?.label ?? account.provider);
-				setting.addExtraButton((button) =>
-					button.setIcon("pencil").setTooltip(STR.edit).onClick(() => {
-						new AccountModal(this.app, this.plugin, () => this.renderAccounts(), account).open();
-					}),
-				);
-				setting.addExtraButton((button) =>
-					button.setIcon("trash").setTooltip(STR.delete).onClick(() => {
-						void (async () => {
-							this.plugin.settings.accounts = this.plugin.settings.accounts.filter((a) => a.id !== account.id);
-							// SecretStorage 公开 API 只有 set/get/list，无删除；以空串覆写即视为清除。
-							this.app.secretStorage.setSecret(account.secretId, "");
-							await this.plugin.saveSettings();
-							this.renderAccounts();
-						})();
-					}),
-				);
-				setting.addToggle((toggle) =>
-					toggle.setValue(account.enabled).onChange((value) => {
-						void (async () => {
-							account.enabled = value;
-							await this.plugin.saveSettings();
-						})();
-					}),
-				);
+				this.configureAccountRow(setting, account);
 			});
 		}
+	}
+
+	/** 账号行控件（两轨道共用；编辑、删除、开关顺序为用户拍板）。 */
+	private configureAccountRow(setting: Setting, account: AccountRecord): void {
+		setting.addExtraButton((button) =>
+			button.setIcon("pencil").setTooltip(STR.edit).onClick(() => {
+				new AccountModal(this.app, this.plugin, () => this.refreshAccounts(), account).open();
+			}),
+		);
+		setting.addExtraButton((button) =>
+			button.setIcon("trash").setTooltip(STR.delete).onClick(() => {
+				void (async () => {
+					this.plugin.settings.accounts = this.plugin.settings.accounts.filter((a) => a.id !== account.id);
+					// SecretStorage 公开 API 只有 set/get/list，无删除；以空串覆写即视为清除。
+					this.app.secretStorage.setSecret(account.secretId, "");
+					await this.plugin.saveSettings();
+					this.refreshAccounts();
+				})();
+			}),
+		);
+		setting.addToggle((toggle) =>
+			toggle.setValue(account.enabled).onChange((value) => {
+				void (async () => {
+					account.enabled = value;
+					await this.plugin.saveSettings();
+				})();
+			}),
+		);
 	}
 }
 

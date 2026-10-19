@@ -77,15 +77,17 @@ describe("parseSubscriptionInfo / parseSummaryInfo", () => {
 });
 
 describe("composeQuotaSnapshot", () => {
-	it("CC 推导本期月条：totalCost ÷ monthlyCredits，重置点=周期结束", () => {
+	it("CC 推导近一月条：totalCost ÷ (totalCost+monthlyCredits)，重置点=周期结束", () => {
+		// 真号语义：monthlyCredits 是剩余额度。花 69.9 剩 0.1 → 总额度 70 → 99.86%。
 		const periodEnd = Date.parse("2026-09-30T00:00:00Z");
 		const snap = composeQuotaSnapshot(
-			{ monthly: 70, remaining: 0.1, windows: [] },
+			{ monthly: 0.1, remaining: 0.1, windows: [] },
 			{ planId: "individual-goat", periodStartMs: null, periodEndMs: periodEnd },
 			{ totalCost: 69.9, totalCount: 13147 },
 			1_758_000_000_000,
 		);
 		expect(snap!.windows.map((w) => w.key)).toEqual(["monthly"]);
+		expect(snap!.windows[0]!.label).toBe("近一月");
 		expect(snap!.windows[0]!.usedPercent).toBeCloseTo(99.86, 1);
 		expect(snap!.windows[0]!.rateLimited).toBe(false);
 		expect(snap!.windows[0]!.resetsAt).toBe(periodEnd);
@@ -93,20 +95,38 @@ describe("composeQuotaSnapshot", () => {
 		expect(snap!.extras.map((e) => e.label)).toEqual(["余额", "本期费用", "本期请求", "剩余天数"]);
 	});
 
-	it("已有原生窗口时本期条追加在两条窗口之后", () => {
+	it("已有原生窗口时近一月条追加在两条窗口之后", () => {
 		const snap = composeQuotaSnapshot(
 			{
-				monthly: 70,
-				remaining: 8,
+				monthly: 90,
+				remaining: 90,
 				windows: [
 					{ key: "fiveHour", label: "近5小时", usedPercent: 10, resetsAt: null, rateLimited: false },
 					{ key: "weekly", label: "近一周", usedPercent: 20, resetsAt: null, rateLimited: false },
 				],
 			},
 			{ planId: null, periodStartMs: null, periodEndMs: 1 },
-			{ totalCost: 7, totalCount: 1 },
+			{ totalCost: 10, totalCount: 1 },
 		);
 		expect(snap!.windows.map((w) => w.key)).toEqual(["fiveHour", "weekly", "monthly"]);
+		expect(snap!.windows[2]!.usedPercent).toBeCloseTo(10);
+	});
+
+	it("月度额度耗尽（剩余 0）时近一月条仍显示并钳在 100%；分母为 0 时不出条", () => {
+		const exhausted = composeQuotaSnapshot(
+			{ monthly: 0, remaining: 0, windows: [] },
+			{ planId: null, periodStartMs: null, periodEndMs: 1 },
+			{ totalCost: 35.44, totalCount: 1 },
+		);
+		expect(exhausted!.windows).toHaveLength(1);
+		expect(exhausted!.windows[0]).toMatchObject({ key: "monthly", usedPercent: 100, rateLimited: true });
+
+		const zeroDenom = composeQuotaSnapshot(
+			{ monthly: 0, remaining: 0, windows: [] },
+			{ planId: null, periodStartMs: null, periodEndMs: 1 },
+			{ totalCost: 0, totalCount: 0 },
+		);
+		expect(zeroDenom!.windows).toHaveLength(0);
 	});
 
 	it("三段全空 → null", () => {
