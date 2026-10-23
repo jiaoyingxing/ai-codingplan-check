@@ -31,7 +31,7 @@ export function toAmountText(value: string | number): string {
 	return parsed.toFixed(2);
 }
 
-/** 货币符号 + 金额组合：负号恒置于符号最前（如 "-¥2.50"）——面板按值的前缀负号识别红字（§v1.2 裁决③）。 */
+/** 货币符号 + 金额组合：负号恒置于符号最前（如 "-¥2.50"）——面板按前缀负号识别负值。 */
 export function withCurrencySymbol(symbol: string, amount: string): string {
 	return amount.startsWith("-") ? `-${symbol}${amount.slice(1)}` : `${symbol}${amount}`;
 }

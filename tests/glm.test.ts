@@ -78,7 +78,7 @@ describe("parseQuotaLimit", () => {
 		expect(parseQuotaLimit({ data: { limits: [{ type: "TIME_LIMIT", percentage: 42 }] } })).toBeUndefined();
 	});
 
-	it("unit/number 其他组合生成对应标签；percent 钳制并标限速", () => {
+	it("unit/number 其他组合生成对应标签；输出按短→长排序，percent 钳制并标限速", () => {
 		const snapshot = parseQuotaLimit({
 			data: {
 				limits: [
@@ -88,11 +88,42 @@ describe("parseQuotaLimit", () => {
 				],
 			},
 		});
-		expect(snapshot!.windows.map((w) => w.label)).toEqual(["近一天", "近2小时", "近2周"]);
-		expect(snapshot!.windows[0]).toMatchObject({ usedPercent: 100, rateLimited: true });
-		expect(snapshot!.windows[1]!.usedPercent).toBe(0);
-		expect(snapshot!.windows[1]!.resetsAt).toBe(1_700_100_000_000);
-		expect(snapshot!.windows[2]!.resetsAt).toBeNull();
+		expect(snapshot!.windows.map((w) => w.key)).toEqual(["hour2", "daily", "week2"]);
+		expect(snapshot!.windows.map((w) => w.label)).toEqual(["近2小时", "近一天", "近2周"]);
+		const byKey = new Map(snapshot!.windows.map((w) => [w.key, w]));
+		expect(byKey.get("daily")).toMatchObject({ usedPercent: 100, rateLimited: true });
+		expect(byKey.get("hour2")!.usedPercent).toBe(0);
+		expect(byKey.get("hour2")!.resetsAt).toBe(1_700_100_000_000);
+		expect(byKey.get("week2")!.resetsAt).toBeNull();
+	});
+
+	it("乱序 月/周/5 小时输入强制短→长：末位为月窗（行总用量取末位）", () => {
+		const snapshot = parseQuotaLimit({
+			data: {
+				limits: [
+					{ type: "TOKENS_LIMIT", unit: 5, number: 1, percentage: 30, nextResetTime: RESET_MS },
+					{ type: "TOKENS_LIMIT", unit: 6, number: 1, percentage: 20, nextResetTime: RESET_MS },
+					{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 10, nextResetTime: RESET_MS },
+				],
+			},
+		});
+		expect(snapshot!.windows.map((w) => w.key)).toEqual(["fiveHour", "weekly", "monthly"]);
+		expect(snapshot!.windows.map((w) => w.label)).toEqual(["近5小时", "近一周", "近一月"]);
+		expect(snapshot!.windows.map((w) => w.usedPercent)).toEqual([10, 20, 30]);
+		expect(snapshot!.windows.at(-1)!.key).toBe("monthly");
+	});
+
+	it("无 unit 的类型兜底同样按短→长排：5 小时在「本期」之前", () => {
+		const snapshot = parseQuotaLimit({
+			data: {
+				limits: [
+					{ type: "CREDIT_LIMIT", percentage: 50 },
+					{ type: "TOKENS_LIMIT", percentage: 7 },
+				],
+			},
+		});
+		expect(snapshot!.windows.map((w) => w.key)).toEqual(["fiveHour", "credit"]);
+		expect(snapshot!.windows.map((w) => w.label)).toEqual(["近5小时", "本期"]);
 	});
 
 	it("同 key 重复条目保留先出现的一条；无 level 不产出套餐名", () => {

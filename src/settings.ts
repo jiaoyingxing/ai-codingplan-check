@@ -2,7 +2,7 @@ import { App, Modal, Notice, PluginSettingTab, Setting, SettingDefinitionItem, S
 import type AiCodingplanCheckPlugin from "./main";
 import { getAdapter, listAdapters } from "./adapters";
 import { STR } from "./strings";
-import type { AccountRecord, ProviderAdapter, ProviderId } from "./types";
+import type { AccountRecord, ProviderAdapter, ProviderId, QuotaSnapshot } from "./types";
 
 export class QuotaSettingTab extends PluginSettingTab {
 	plugin: AiCodingplanCheckPlugin;
@@ -251,6 +251,7 @@ export class QuotaSettingTab extends PluginSettingTab {
 			button.setIcon("trash").setTooltip(STR.delete).onClick(() => {
 				void (async () => {
 					this.plugin.settings.accounts = this.plugin.settings.accounts.filter((a) => a.id !== account.id);
+					this.plugin.quotaStore.invalidate(account.id);
 					// SecretStorage 公开 API 只有 set/get/list，无删除；以空串覆写即视为清除。
 					this.app.secretStorage.setSecret(account.secretId, "");
 					await this.plugin.saveSettings();
@@ -262,7 +263,10 @@ export class QuotaSettingTab extends PluginSettingTab {
 			toggle.setValue(account.enabled).onChange((value) => {
 				void (async () => {
 					account.enabled = value;
+					// 重新启用时丢掉旧快照，避免面板继续显示停用前的读数。
+					if (value) this.plugin.quotaStore.invalidate(account.id);
 					await this.plugin.saveSettings();
+					this.refreshAccounts();
 				})();
 			}),
 		);
@@ -379,17 +383,20 @@ export class AccountModal extends Modal {
 						? adapter.joinCredential(cred1.getValue(), secondValue)
 						: cred1.getValue();
 					const keyChanged = stored !== storedSecret;
-					if (keyChanged && !stored) {
-						new Notice(`${STR.wizardCredential}不能为空`);
+					// 新建账号必须填凭证；编辑账号仅在新凭证被清空时拦截（原凭证保持不变）。
+					if (editing ? keyChanged && !stored : !stored.trim()) {
+						new Notice(STR.wizardCredentialEmpty);
 						return;
 					}
 					this.testing = true;
 					button.setButtonText(saveLabel());
 					if (saveButton) saveButton.disabled = true;
+					let testedSnapshots: QuotaSnapshot[] | null = null;
 					try {
-							let testSummary = "";
+						let testSummary = "";
 							if (keyChanged) {
 								const snapshots = await adapter.fetchQuota(stored);
+								testedSnapshots = snapshots;
 								testSummary = snapshots
 									.map((s) => s.coreBalance ?? s.windows.map((w) => `${w.label} ${w.usedPercent}%`).join(" · ")) // 余额型（§v1.2）：测通摘要显核心余额
 									.join(" / ");
@@ -423,6 +430,8 @@ export class AccountModal extends Modal {
 							this.plugin.settings.accounts.push(record);
 						}
 						await this.plugin.saveSettings();
+						// 测通结果直接回写共享缓存（§v1.3）：面板再次渲染时直接取到读数，无需重新查询一次。
+						if (testedSnapshots) this.plugin.quotaStore.put(record.id, testedSnapshots);
 						new Notice(`${STR.savedOk}${testSummary ? `：${testSummary}` : ""}`, 6000);
 						this.close();
 						this.onSaved?.();

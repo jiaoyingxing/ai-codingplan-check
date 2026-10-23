@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { jsonOf, snippet } from "./request";
+import { jsonOf } from "./request";
+import { isRecord, snippet } from "./shared";
 import { cookieHeaderValue, normalizeCookieHeader } from "./cookie";
 import { isAuthErrorCode, parseAfpTiers, parseCodingTiers, responseError, resultOf } from "./volcengine";
 import type { ProviderAdapter, QuotaSnapshot } from "../types";
@@ -28,10 +29,6 @@ const AGENT_REFERER = `${CONSOLE_ORIGIN}/ark/region:cn-beijing/subscription/agen
 /** csrfToken cookie 值即 x-csrf-token 头（控制台前端同款取法）。导出仅为单测。 */
 export function extractCsrfToken(cookie: string): string | undefined {
 	return cookieHeaderValue(cookie, "csrfToken");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function sessionExpired(detail: string): never {
@@ -133,7 +130,6 @@ async function fetchPlans(cookie: string, csrf: string): Promise<QuotaSnapshot[]
 export const volcengineConsoleAdapter: ProviderAdapter = {
 	id: "volcengine-console",
 	label: "火山方舟（Cookie）",
-	credentialLabel: "会话 Cookie",
 	credentialHint:
 		"火山引擎控制台登录态 Cookie：登录 console.volcengine.com 后，从 F12 Network 任意请求复制整条 Cookie 请求头（需含 csrfToken=；非 API Key，权限更大，勿外传）。查询 Coding / Agent Plan 用量，与 AccessKey 版互补；社区经验约 7 天需重贴",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {

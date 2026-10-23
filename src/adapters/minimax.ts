@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaSnapshot, QuotaWindow } from "../types";
 
 // MiniMax Token Plan（编程套餐）额度接口契约（来源：官方 FAQ 的 curl 示例 + 官方仓库 issue 与
@@ -58,10 +59,6 @@ const WEEKLY_FIELDS: WindowFields = {
 	status: "current_weekly_status",
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
 	if (typeof value === "string" && value.trim()) {
@@ -69,10 +66,6 @@ function numberLike(value: unknown): number | undefined {
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 	return undefined;
-}
-
-function clampPercent(value: number): number {
-	return Math.min(100, Math.max(0, value));
 }
 
 /** epoch 毫秒 / 秒 / ISO-8601 → epoch ms。 */
@@ -176,7 +169,6 @@ async function fetchFrom(entry: (typeof CANDIDATES)[number], secret: string): Pr
 export const miniMaxAdapter: ProviderAdapter = {
 	id: "minimax",
 	label: "MiniMax",
-	credentialLabel: "Subscription Key",
 	credentialHint: "Token Plan 的 Subscription Key（sk-cp-…；中国站 / 国际站均可）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const snapshot = await firstSuccessful(

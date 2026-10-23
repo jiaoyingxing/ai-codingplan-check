@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaSnapshot, QuotaWindow } from "../types";
 
 // 火山方舟额度查询契约（来源：farion1231/cc-switch src-tauri/src/services/coding_plan.rs，
@@ -121,10 +122,6 @@ function toVolcDate(now: Date): string {
 	);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -139,10 +136,6 @@ function toEpochMs(value: unknown): number | null {
 	}
 	if (ts === undefined || !Number.isFinite(ts) || ts < 0) return null;
 	return ts >= 1e12 ? ts : ts * 1000;
-}
-
-function clampPercent(v: number): number {
-	return Math.min(100, Math.max(0, v));
 }
 
 /** 响应里的 ResponseMetadata.Error（或顶层 Error）；无则 null。 */
@@ -246,10 +239,6 @@ async function openApiCall(
 	return { kind: "body", body: parsed };
 }
 
-function snippet(raw: string): string {
-	return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-}
-
 const AFP_WINDOWS: [string, string][] = [
 	["AFPFiveHour", "近5小时"],
 	["AFPWeekly", "近一周"],
@@ -284,9 +273,13 @@ const CODING_LEVELS: [string[], string][] = [
 	[["monthly", "month"], "近一月"],
 ];
 
-function codingLevel(label: string): string | null {
+/** 返回输出标签与组序（session=0 → weekly=1 → monthly=2），组序用于强制短→长排序。 */
+function codingTier(label: string): { label: string; rank: number } | null {
 	const l = label.toLowerCase();
-	for (const [names, out] of CODING_LEVELS) if (names.includes(l)) return out;
+	for (let rank = 0; rank < CODING_LEVELS.length; rank++) {
+		const [names, out] = CODING_LEVELS[rank];
+		if (names.includes(l)) return { label: out, rank };
+	}
 	return null;
 }
 
@@ -299,16 +292,17 @@ function usedTotalPercent(item: Record<string, unknown>): number | undefined {
 	return (used / total) * 100;
 }
 
-/** Coding Plan：Result.QuotaUsage/Usages/Details[]，Level 字段实测 session/weekly/monthly，只给已用百分比。 */
+/** Coding Plan：Result.QuotaUsage/Usages/Details[]，Level 字段实测 session/weekly/monthly，只给已用百分比。
+ *  输出按 CODING_LEVELS 组序由短到长排列（QuotaSnapshot.windows 契约：末位=账单周期）。 */
 export function parseCodingTiers(result: unknown): QuotaWindow[] {
-	const windows: QuotaWindow[] = [];
-	if (!isRecord(result)) return windows;
+	if (!isRecord(result)) return [];
 	const arr =
 		(Array.isArray(result.QuotaUsage) && result.QuotaUsage) ||
 		(Array.isArray(result.Usages) && result.Usages) ||
 		(Array.isArray(result.Details) && result.Details) ||
 		null;
-	if (!arr) return windows;
+	if (!arr) return [];
+	const tiers: { window: QuotaWindow; rank: number }[] = [];
 	for (const item of arr as unknown[]) {
 		if (!isRecord(item)) continue;
 		const level =
@@ -316,19 +310,24 @@ export function parseCodingTiers(result: unknown): QuotaWindow[] {
 			(typeof item.Type === "string" && item.Type) ||
 			(typeof item.Period === "string" && item.Period) ||
 			"";
-		const label = codingLevel(level);
-		if (!label) continue;
+		const tier = codingTier(level);
+		if (!tier) continue;
 		const percent =
 			num(item.Percent) ?? num(item.UsedPercent) ?? num(item.UsagePercent) ?? usedTotalPercent(item) ?? 0;
-		windows.push({
-			key: level,
-			label,
-			usedPercent: clampPercent(percent),
-			resetsAt: toEpochMs(item.ResetTime ?? item.ResetTimestamp),
-			rateLimited: clampPercent(percent) >= 100,
+		const usedPercent = clampPercent(percent);
+		tiers.push({
+			window: {
+				key: level,
+				label: tier.label,
+				usedPercent,
+				resetsAt: toEpochMs(item.ResetTime ?? item.ResetTimestamp),
+				rateLimited: usedPercent >= 100,
+			},
+			rank: tier.rank,
 		});
 	}
-	return windows;
+	// 原生 sort 自 ES2019 起稳定：同档位窗口保留响应原序。
+	return tiers.sort((a, b) => a.rank - b.rank).map((tier) => tier.window);
 }
 
 export function resultOf(body: unknown): unknown {
@@ -338,7 +337,6 @@ export function resultOf(body: unknown): unknown {
 export const volcengineAdapter: ProviderAdapter = {
 	id: "volcengine",
 	label: "火山方舟",
-	credentialLabel: "AccessKey ID",
 	credentialHint: "火山引擎控制台-API 访问密钥的 AccessKey ID",
 	credential2: {
 		label: "Secret Access Key",

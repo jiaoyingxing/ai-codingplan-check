@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { jsonOf, snippet } from "./request";
+import { jsonOf } from "./request";
+import { isRecord, snippet } from "./shared";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -19,10 +20,6 @@ const USAGE_URL = "https://api.deepseek.com/user/balance";
 const CURRENCY_SYMBOLS: Record<string, string> = { CNY: "¥", USD: "$", EUR: "€" };
 /** 其余币种余额的 extras 键名（中文币种名；未收录退回代码本身）。 */
 const CURRENCY_NAMES: Record<string, string> = { CNY: "人民币", USD: "美元", EUR: "欧元" };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function textOf(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -87,7 +84,6 @@ export function parseBalancePayload(payload: unknown, now = Date.now()): QuotaSn
 export const deepSeekAdapter: ProviderAdapter = {
 	id: "deepseek",
 	label: "DeepSeek",
-	credentialLabel: "API Key",
 	credentialHint: "DeepSeek 开放平台 API Key（sk-…，与推理用同一把）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		// throw:false：401 等也要拿到响应体，错误里带状态码与片段，别让宿主抛笼统错误。

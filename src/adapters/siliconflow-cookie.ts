@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { jsonOf, snippet } from "./request";
+import { jsonOf } from "./request";
+import { isRecord, snippet } from "./shared";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -34,10 +35,6 @@ const UNITS_PER_YUAN = 1e12;
 const OK_CODE = 20000;
 /** 会话失效类业务码（llm-gateway / FeeQuery 口径：40100；FeeQuery 另见 40001/40003）。 */
 const SESSION_CODES = new Set([40100, 40001, 40003]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -264,7 +261,6 @@ async function fetchWallets(cookie: string, subjectId: string): Promise<WalletBr
 export const siliconFlowCookieAdapter: ProviderAdapter = {
 	id: "siliconflow-cookie",
 	label: "硅基流动（Cookie）",
-	credentialLabel: "会话 Cookie",
 	credentialHint:
 		"控制台登录态 Cookie：__SF_auth.session-token 的值（非 API Key，权限更大，勿外传）。获取：登录 cloud.siliconflow.cn 后 F12 → Application → Cookies 复制其 Value；整串 Cookie 或 Network 里任意请求的 Cookie 请求头粘入也可。失效后重新复制",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {

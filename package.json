@@ -1,6 +1,6 @@
 {
   "name": "ai-codingplan-check",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "AI CodingPlan Check / AI编程套餐查询 — 聚合查询 OpenCode Go、Command Code、火山方舟、智谱 GLM、Kimi、MiniMax、DeepSeek、硅基流动、Moonshot、StepFun、PPIO、小米 MiMo 等服务的套餐用量与按量余额",
   "main": "main.js",
   "scripts": {
@@ -19,14 +19,12 @@
   "author": "Jiao Yingxing",
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^26.1.0",
     "esbuild": "^0.24.0",
     "eslint": "9.39.5",
     "eslint-plugin-obsidianmd": "0.4.2",
+    "obsidian": "1.13.1",
     "typescript": "^5.4.0",
     "vitest": "^4.1.10"
-  },
-  "dependencies": {
-    "@types/node": "^26.1.0",
-    "obsidian": "1.13.1"
   }
 }

@@ -1,11 +1,6 @@
-/** 适配器共用的请求层小件：响应片段、容错 JSON 取值、多端点尝试。
+/** 适配器共用的请求层小件：容错 JSON 取值、多端点尝试。
  *  多端点尝试是几家厂商的共同形态（同族域名 / 新旧路径并存，区域靠 host 区分），
  *  失败文案必须带端点名与原因片段，且同一句话只出现一次（凭证无效时各端点往往同因）。 */
-
-/** 错误里附带的响应片段（截断，避免整页 HTML 灌进 Notice）。 */
-export function snippet(raw: string): string {
-	return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-}
 
 /** 宿主 response.json 在非 JSON 响应体上会抛，取不到就当 undefined 交给上层判定。 */
 export function jsonOf(response: { json: unknown }): unknown {

@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 import { formatPercent } from "../format";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot, QuotaWindow } from "../types";
 
 // 智谱 GLM Coding Plan 额度接口契约（来源：官方插件 zai-org/zai-coding-plugins 的
@@ -41,10 +42,11 @@ const UNIT_WEEK = 6;
 
 const LEVEL_NAMES: Record<string, string> = { lite: "Lite", pro: "Pro", max: "Max", standard: "Standard" };
 
-/** 无 unit 时的类型兜底：老套餐只回 TOKENS_LIMIT 一条（官方脚本标为 5 小时）。 */
-const TYPE_FALLBACK: Record<string, { key: string; label: string }> = {
-	TOKENS_LIMIT: { key: "fiveHour", label: "近5小时" },
-	CREDIT_LIMIT: { key: "credit", label: "本期" },
+/** 无 unit 时的类型兜底：老套餐只回 TOKENS_LIMIT 一条（官方脚本标为 5 小时）；
+ *  minutes 用于统一排序（TOKENS_LIMIT=5 小时，CREDIT_LIMIT 按账单月=30 天）。 */
+const TYPE_FALLBACK: Record<string, { key: string; label: string; minutes: number }> = {
+	TOKENS_LIMIT: { key: "fiveHour", label: "近5小时", minutes: 5 * 60 },
+	CREDIT_LIMIT: { key: "credit", label: "本期", minutes: 30 * 24 * 60 },
 };
 
 export interface GlmApiError {
@@ -52,17 +54,9 @@ export interface GlmApiError {
 	message: string | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toFiniteNumber(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
 	return undefined;
-}
-
-function clampPercent(value: number): number {
-	return Math.min(100, Math.max(0, value));
 }
 
 /** 兼容 epoch 毫秒、epoch 秒与 ISO-8601；输出 epoch ms，未知为 null。 */
@@ -76,6 +70,20 @@ function toEpochMs(value: unknown): number | null {
 		return Number.isFinite(parsed) && parsed > 0 ? (parsed >= 1e12 ? parsed : parsed * 1000) : null;
 	}
 	return null;
+}
+
+/** unit 对应的单倍分钟数；未知 unit 返回 undefined（交给类型兜底）。 */
+const UNIT_MINUTES: Record<number, number> = {
+	[UNIT_HOUR]: 60,
+	[UNIT_DAY]: 24 * 60,
+	[UNIT_WEEK]: 7 * 24 * 60,
+	[UNIT_MONTH]: 30 * 24 * 60,
+};
+
+function minutesOf(unit: number | undefined, count: number | undefined): number | undefined {
+	if (unit === undefined) return undefined;
+	const per = UNIT_MINUTES[unit];
+	return per === undefined ? undefined : (count ?? 1) * per;
 }
 
 /** 由 unit+number 判定窗口；无法判定返回 undefined。 */
@@ -109,12 +117,13 @@ export function parseApiError(payload: unknown): GlmApiError | null {
 }
 
 /** 解析 quota/limit 响应；无任何可用窗口返回 undefined，由调用方报"无法识别"。
- *  同 key 条目重复时保留先出现的一条（迭代序即服务端返回序，不猜优先级）。 */
+ *  同 key 条目重复时保留先出现的一条（迭代序即服务端返回序，不猜优先级）；
+ *  输出统一按窗口时长由短到长排列（QuotaSnapshot.windows 契约：末位=账单周期）。 */
 export function parseQuotaLimit(payload: unknown, now = Date.now()): QuotaSnapshot | undefined {
 	if (!isRecord(payload)) return undefined;
 	const data = isRecord(payload.data) ? payload.data : undefined;
 	if (!data || !Array.isArray(data.limits)) return undefined;
-	const windows: QuotaWindow[] = [];
+	const entries: { window: QuotaWindow; minutes: number }[] = [];
 	const extras: QuotaExtra[] = [];
 	const seen = new Set<string>();
 	for (const entry of data.limits as unknown[]) {
@@ -129,18 +138,26 @@ export function parseQuotaLimit(payload: unknown, now = Date.now()): QuotaSnapsh
 			}
 			continue;
 		}
-		const shape = shapeFromUnit(toFiniteNumber(entry.unit), toFiniteNumber(entry.number)) ?? TYPE_FALLBACK[type];
+		const unit = toFiniteNumber(entry.unit);
+		const count = toFiniteNumber(entry.number);
+		const fallback = TYPE_FALLBACK[type];
+		const shape = shapeFromUnit(unit, count) ?? fallback;
 		if (!shape || seen.has(shape.key)) continue;
 		seen.add(shape.key);
-		windows.push({
-			key: shape.key,
-			label: shape.label,
-			usedPercent,
-			resetsAt: toEpochMs(entry.nextResetTime),
-			rateLimited: usedPercent >= 100,
+		entries.push({
+			window: {
+				key: shape.key,
+				label: shape.label,
+				usedPercent,
+				resetsAt: toEpochMs(entry.nextResetTime),
+				rateLimited: usedPercent >= 100,
+			},
+			minutes: minutesOf(unit, count) ?? fallback?.minutes ?? 0,
 		});
 	}
-	if (windows.length === 0) return undefined;
+	if (entries.length === 0) return undefined;
+	// 原生 sort 自 ES2019 起稳定：同分钟窗口保留响应原序。
+	const windows = entries.sort((a, b) => a.minutes - b.minutes).map((entry) => entry.window);
 	return { planName: planNameFromLevel(data.level), windows, extras, capturedAt: now };
 }
 
@@ -184,7 +201,6 @@ async function fetchFrom(domain: (typeof DOMAINS)[number], secret: string): Prom
 export const glmAdapter: ProviderAdapter = {
 	id: "glm",
 	label: "智谱 GLM",
-	credentialLabel: "API Key",
 	credentialHint: "GLM Coding Plan 的 API Key（bigmodel 国内 / z.ai 国际均可）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		// 国内站优先，失败再试国际站：两边是同一份凭证语义，用户不需要知道自己该用哪个站。

@@ -99,6 +99,27 @@ describe("volcengineConsoleAdapter.fetchQuota", () => {
 		expect(snapshots[0]!.planName).toBe("Agent Plan Pro");
 	});
 
+	it("Coding 响应乱序：卡内窗口仍按 近5小时 → 近一周 → 近一月 排列", async () => {
+		mockedRequestUrl
+			.mockResolvedValueOnce(
+				respond({
+					Result: {
+						PlanType: "Pro",
+						QuotaUsage: [
+							{ Level: "monthly", Percent: 100, ResetTimestamp: NOW_S },
+							{ Level: "session", Percent: 30, ResetTimestamp: NOW_S },
+							{ Level: "weekly", Percent: 60, ResetTimestamp: NOW_S },
+						],
+					},
+				}),
+			)
+			.mockResolvedValueOnce(respond({ Result: {} }));
+		const snapshots = await volcengineConsoleAdapter.fetchQuota(cookie);
+		expect(snapshots).toHaveLength(1);
+		expect(snapshots[0]!.windows.map((w) => w.label)).toEqual(["近5小时", "近一周", "近一月"]);
+		expect(snapshots[0]!.windows.map((w) => w.usedPercent)).toEqual([30, 60, 100]);
+	});
+
 	it("Percent 缺失走 used/total 兜底（Coding 窗）", async () => {
 		mockedRequestUrl
 			.mockResolvedValueOnce(

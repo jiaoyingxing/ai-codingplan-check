@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { isRecord, snippet } from "./shared";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -18,10 +19,6 @@ const CANDIDATES = [
 	{ name: "国内站", url: "https://api.moonshot.cn/v1/users/me/balance", symbol: "¥" },
 	{ name: "国际站", url: "https://api.moonshot.ai/v1/users/me/balance", symbol: "$" },
 ] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -100,7 +97,6 @@ async function fetchFrom(entry: (typeof CANDIDATES)[number], secret: string): Pr
 export const moonshotAdapter: ProviderAdapter = {
 	id: "moonshot",
 	label: "Moonshot 平台",
-	credentialLabel: "API Key",
 	credentialHint: "Moonshot 开放平台 API Key（sk-…，与推理用同一把；不是 Kimi For Coding 的 sk-kimi-…）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const snapshot = await firstSuccessful(

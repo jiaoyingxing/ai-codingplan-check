@@ -1,4 +1,6 @@
 import { requestUrl } from "obsidian";
+import { jsonOf } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot, QuotaWindow } from "../types";
 
 // Command Code 额度接口契约（来源：patlux/pi-commandcode-provider src/quota.ts，2026-09 核对）：
@@ -36,10 +38,6 @@ export interface CommandCodeSummary {
 	totalCount: number | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function numberValue(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
@@ -58,10 +56,6 @@ function toEpochMs(value: unknown): number | null {
 	}
 	if (timestamp === undefined || !Number.isFinite(timestamp) || timestamp < 0) return null;
 	return timestamp >= 1e12 ? timestamp : timestamp * 1000;
-}
-
-function clampPercent(value: number): number {
-	return Math.min(100, Math.max(0, value));
 }
 
 export function parseWhoamiAccount(payload: unknown): CommandCodeAccount | null {
@@ -124,7 +118,13 @@ export function parseSummaryInfo(payload: unknown): CommandCodeSummary | null {
 	return { totalCost: totalCost ?? null, totalCount: totalCount ?? null };
 }
 
-async function getJson(path: string, secret: string): Promise<{ status: number; json: unknown }> {
+interface CommandCodeResponse {
+	status: number;
+	json: unknown;
+	raw: string;
+}
+
+async function getJson(path: string, secret: string): Promise<CommandCodeResponse> {
 	// throw:false：4xx/5xx 也要拿到响应体，错误里带状态码与片段。
 	const response = await requestUrl({
 		url: `${API_BASE}${path}`,
@@ -132,10 +132,10 @@ async function getJson(path: string, secret: string): Promise<{ status: number; 
 		headers: { accept: "application/json", authorization: `Bearer ${secret}` },
 		throw: false,
 	});
-	return { status: response.status, json: response.json };
+	return { status: response.status, json: jsonOf(response), raw: response.text };
 }
 
-async function getJsonSafe(path: string, secret: string): Promise<{ status: number; json: unknown } | null> {
+async function getJsonSafe(path: string, secret: string): Promise<CommandCodeResponse | null> {
 	try {
 		return await getJson(path, secret);
 	} catch {
@@ -143,23 +143,18 @@ async function getJsonSafe(path: string, secret: string): Promise<{ status: numb
 	}
 }
 
-function snippet(raw: string): string {
-	return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-}
-
 export const commandCodeAdapter: ProviderAdapter = {
 	id: "commandcode",
 	label: "Command Code",
-	credentialLabel: "API Key",
 	credentialHint: "commandcode.ai 的 API Key",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const whoami = await getJson("/alpha/whoami", secret);
 		if (whoami.status === 401 || whoami.status === 403) {
-			throw new Error(`HTTP ${whoami.status}：密钥被拒绝（${snippet(JSON.stringify(whoami.json ?? ""))}）`);
+			throw new Error(`HTTP ${whoami.status}：密钥被拒绝（${snippet(whoami.raw)}）`);
 		}
 		const account = parseWhoamiAccount(whoami.json);
 		if (!account) {
-			throw new Error(`HTTP ${whoami.status} 无法识别账号响应：${snippet(JSON.stringify(whoami.json ?? ""))}`);
+			throw new Error(`HTTP ${whoami.status} 无法识别账号响应：${snippet(whoami.raw)}`);
 		}
 		const orgParam = account.orgId ? `?orgId=${encodeURIComponent(account.orgId)}` : "";
 

@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { jsonOf, snippet } from "./request";
+import { jsonOf } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import { cookieHeaderValue, normalizeCookieHeader } from "./cookie";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot, QuotaWindow } from "../types";
@@ -25,10 +26,6 @@ const BALANCE_URL = `${BASE}/api/v1/balance`;
 const REQUIRED_COOKIE = "api-platform_serviceToken";
 /** 原始 Credits → M Credits（百万 Credits，社区通用展示口径）。 */
 const CREDITS_PER_M = 1e6;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -94,7 +91,7 @@ export function parsePlanUsage(payload: unknown): PlanUsage | undefined {
 		if (limit === undefined || limit <= 0) continue;
 		const used = numberLike(row.used) ?? 0;
 		return {
-			usedPercent: Math.min(100, Math.max(0, (used / limit) * 100)),
+			usedPercent: clampPercent((used / limit) * 100),
 			remainingCredits: Math.max(0, limit - used),
 		};
 	}
@@ -146,7 +143,6 @@ async function getJson(url: string, cookie: string): Promise<{ raw: string; payl
 export const mimoAdapter: ProviderAdapter = {
 	id: "mimo",
 	label: "小米 MiMo（Cookie）",
-	credentialLabel: "会话 Cookie",
 	credentialHint:
 		"小米 MiMo 控制台登录态 Cookie：登录 platform.xiaomimimo.com 后，从 F12 Network 任意请求复制整条 Cookie 请求头（需含 api-platform_serviceToken 与 userId；非 API Key，权限更大，勿外传）。失效后重新复制",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {

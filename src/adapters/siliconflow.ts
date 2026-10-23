@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { isRecord, snippet } from "./shared";
 import { withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -29,10 +30,6 @@ const CANDIDATES = [
 const OK_CODE = 20000;
 /** 官方停用码（2026-08-14 起）：终态，不回退。 */
 const DEPRECATED_CODE = 20092;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function textOf(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -103,7 +100,6 @@ async function fetchFrom(entry: (typeof CANDIDATES)[number], secret: string): Pr
 export const siliconFlowAdapter: ProviderAdapter = {
 	id: "siliconflow",
 	label: "硅基流动",
-	credentialLabel: "API Key",
 	credentialHint: "硅基流动 API Key（sk-…，与推理用同一把；国内站 / 国际站均可）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const snapshot = await firstSuccessful(

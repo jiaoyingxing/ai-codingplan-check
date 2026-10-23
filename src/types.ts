@@ -65,8 +65,6 @@ export interface QuotaSnapshot {
 export interface ProviderAdapter {
 	id: ProviderId;
 	label: string;
-	/** 凭证输入框的标签，如 API Key / AK/SK。 */
-	credentialLabel: string;
 	/** 凭证输入框的说明。 */
 	credentialHint: string;
 	/** 双凭证厂商（AK/SK）的第二凭证框；缺省单凭证。secret 以 joinCredential 结果存储。 */
@@ -108,4 +106,36 @@ export function normalizeSort(value: unknown): SortMode {
 	const key = candidate?.key;
 	if (key !== "provider" && key !== "usage" && key !== "reset") return { ...DEFAULT_SORT };
 	return { key, dir: candidate?.dir === "desc" ? "desc" : "asc" };
+}
+
+/** 收敛 data.json 里的账号数组：手改坏字段或整体非数组时不崩面板。
+ *  逐项只保留 id/provider/secretId 为非空字符串的记录；alias 非字符串回空串；
+ *  enabled 缺省按启用（仅显式 false 视为停用）；encSecret 只留非空字符串；同 id 保留首个。
+ *  provider 只要求非空字符串（UI 对未知来源已有兜底），不在此校验联合类型。 */
+export function normalizeAccounts(value: unknown): AccountRecord[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	const accounts: AccountRecord[] = [];
+	for (const item of value) {
+		if (typeof item !== "object" || item === null) continue;
+		const candidate = item as Record<string, unknown>;
+		const { id, provider, secretId } = candidate;
+		if (typeof id !== "string" || id.length === 0) continue;
+		if (typeof provider !== "string" || provider.length === 0) continue;
+		if (typeof secretId !== "string" || secretId.length === 0) continue;
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const account: AccountRecord = {
+			id,
+			provider: provider as ProviderId,
+			alias: typeof candidate.alias === "string" ? candidate.alias : "",
+			secretId,
+			enabled: candidate.enabled !== false,
+		};
+		if (typeof candidate.encSecret === "string" && candidate.encSecret.length > 0) {
+			account.encSecret = candidate.encSecret;
+		}
+		accounts.push(account);
+	}
+	return accounts;
 }

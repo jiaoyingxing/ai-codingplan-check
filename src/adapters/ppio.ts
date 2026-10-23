@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { isRecord, snippet } from "./shared";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -16,10 +17,6 @@ const CANDIDATES = [
 	{ name: "主站", url: "https://api.ppio.com/openapi/v1/billing/balance/detail" },
 	{ name: "旧主机", url: "https://api.ppinfra.com/openapi/v1/billing/balance/detail" },
 ] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -99,7 +96,6 @@ async function fetchFrom(entry: (typeof CANDIDATES)[number], secret: string): Pr
 export const ppioAdapter: ProviderAdapter = {
 	id: "ppio",
 	label: "PPIO",
-	credentialLabel: "API Key",
 	credentialHint: "PPIO API Key（sk_…，与推理用同一把）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const snapshot = await firstSuccessful(

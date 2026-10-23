@@ -1,4 +1,6 @@
 import { requestUrl } from "obsidian";
+import { jsonOf } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaSnapshot, QuotaWindow } from "../types";
 
 // OpenCode Go 用量接口契约（来源：monotykamary/pi-opencode-go-provider usage.ts，2026-09 核对）：
@@ -18,14 +20,6 @@ const WINDOW_LABELS: Record<(typeof WINDOW_KEYS)[number], string> = {
 	weekly: "近一周",
 	monthly: "近一月",
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function clampPercent(value: number): number {
-	return Math.min(100, Math.max(0, value));
-}
 
 function toFiniteNumber(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -76,7 +70,6 @@ export function parseUsagePayload(payload: unknown, now = Date.now()): QuotaSnap
 export const opencodeGoAdapter: ProviderAdapter = {
 	id: "opencode-go",
 	label: "OpenCode Go",
-	credentialLabel: "API Key",
 	credentialHint: "opencode.ai Go 计划的 API Key",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		// throw:false：4xx/5xx 也要拿到响应体，错误里带状态码与片段，别让宿主抛笼统错误。
@@ -90,7 +83,7 @@ export const opencodeGoAdapter: ProviderAdapter = {
 		if (response.status >= 400) {
 			throw new Error(`HTTP ${response.status}：${snippet(raw)}`);
 		}
-		const snapshot = parseUsagePayload(response.json);
+		const snapshot = parseUsagePayload(jsonOf(response));
 		if (!snapshot) {
 			console.warn("[ai-codingplan-check] OpenCode Go 原始响应：", raw);
 			throw new Error(`HTTP ${response.status} 响应无法解析为已知用量结构：${snippet(raw)}`);
@@ -98,7 +91,3 @@ export const opencodeGoAdapter: ProviderAdapter = {
 		return [snapshot];
 	},
 };
-
-function snippet(raw: string): string {
-	return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-}

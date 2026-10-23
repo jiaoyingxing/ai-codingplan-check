@@ -54,7 +54,29 @@
 }
 
 .qk-card-error-text {
+	/* 错误正文整篇红色（用户拍板，恢复上个发布版口径）；红色仅限错误正文 */
 	color: var(--text-error);
+	min-width: 0;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+/* 展开体错误行：说明文字占满剩余宽度；刷新按钮贴首行右侧，不随长文本垂直居中 */
+.qk-error-message {
+	min-width: 0;
+	flex: 1;
+}
+
+/* 机器可读细节（HTTP 状态 / code / 厂商原始响应）：等宽小字号 + 标点后可折行，
+   避免整段 JSON 以大字号压过说明文字；颜色继承错误正文的红色。 */
+.qk-error-code {
+	color: var(--text-error);
+	font-family: var(--font-monospace);
+	font-size: calc(var(--font-ui-smaller) - 1px);
+	line-height: 1.45;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .qk-captured {
@@ -106,6 +128,21 @@ details[open] > .qk-row .qk-collapse-icon {
 	transition: width 200ms ease;
 }
 
+/* 100% / 冷却（短窗口等待重置）：外侧总量条改浅灰，与正常 accent 用量条区分。
+   灰色走宿主 border 变量，亮/暗主题自动跟随。 */
+.qk-row-fill.qk-row-fill-muted {
+	background: var(--background-modifier-border);
+	opacity: 1;
+}
+
+/* 行内容压在 fill 之上：浅灰不透明后，文字 / chevron / 行尾仍须可读。 */
+.qk-collapse-icon,
+.qk-row-text,
+.qk-row-pct {
+	position: relative;
+	z-index: 1;
+}
+
 .qk-row-text {
 	position: relative;
 	display: flex;
@@ -131,12 +168,8 @@ details[open] > .qk-row .qk-collapse-icon {
 	white-space: nowrap;
 }
 
-.qk-row .qk-pct {
-	flex: none;
-}
-
 /* 余额型金额槽位（§v1.2 候选②③）：数字等宽对齐 + 不换行兜底；窗口型的行尾 % 同走本槽位，无副作用。
-   负余额红字（候选③）走 .qk-neg（行尾金额与 extras 键值通用，--text-error 与错误文案同源）。 */
+   负值不再单独上色（§v1.3 减负：用原色，靠负号表达）。 */
 .qk-row-pct {
 	flex: none;
 	font-variant-numeric: tabular-nums;
@@ -144,7 +177,52 @@ details[open] > .qk-row .qk-collapse-icon {
 }
 
 .qk-neg {
-	color: var(--text-error);
+	color: var(--text-normal);
+}
+
+/* ===== 折叠行受限接管（§v1.3）=====
+   填充条仍表示总额度（口径不变）；短窗口满时行尾只留沙漏图标，不报窗口/天数；
+   图标走主题色，文字保持原色、不加粗。 */
+.qk-row-pct.qk-row-blocked {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 150px;
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+}
+
+.qk-row-blocked-icon {
+	display: inline-flex;
+	flex: none;
+	color: var(--text-muted);
+}
+
+.qk-row-blocked-icon svg {
+	/* 折叠行右侧状态图标统一到宿主原生图标基准 --icon-m（当前宿主 16px，随主题可变），
+	   不再比行内其他图标小一号 */
+	width: var(--icon-m, 16px);
+	height: var(--icon-m, 16px);
+}
+
+/* 查询失败/凭证缺失等特殊态：只留一个图标（用户拍板），原因进 tooltip。 */
+.qk-row-pct.qk-row-error {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	max-width: 32px;
+	font-size: var(--font-ui-smaller);
+}
+
+.qk-row-error-icon {
+	display: inline-flex;
+	flex: none;
+	color: var(--text-muted);
+}
+
+.qk-row-error-icon svg {
+	width: var(--icon-m, 16px);
+	height: var(--icon-m, 16px);
 }
 
 /* ===== 展开体 ===== */
@@ -172,7 +250,7 @@ details[open] > .qk-row .qk-collapse-icon {
 
 .qk-error-line {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	justify-content: space-between;
 	gap: 8px;
 }

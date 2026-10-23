@@ -89,6 +89,19 @@ describe("parseCodingTiers（Coding Plan，只回已用百分比）", () => {
 		expect(windows[2]).toMatchObject({ usedPercent: 100, rateLimited: true });
 	});
 
+	it("乱序输入强制短→长：session → weekly → monthly", () => {
+		const windows = parseCodingTiers({
+			QuotaUsage: [
+				{ Level: "monthly", Percent: 100, ResetTime: 1_700_100_000 },
+				{ Level: "weekly", Percent: 62, ResetTime: 1_700_100_000 },
+				{ Level: "session", Percent: 37, ResetTime: 1_700_100_000 },
+			],
+		});
+		expect(windows.map((w) => w.label)).toEqual(["近5小时", "近一周", "近一月"]);
+		expect(windows.map((w) => w.usedPercent)).toEqual([37, 62, 100]);
+		expect(windows.at(-1)).toMatchObject({ key: "monthly", rateLimited: true });
+	});
+
 	it("防御式回退：Usages/Details 数组与 Type/Period 字段名", () => {
 		expect(parseCodingTiers({ Usages: [{ Type: "weekly", Percent: 6 }] }).map((w) => w.label)).toEqual(["近一周"]);
 		expect(parseCodingTiers({ Details: [{ Period: "monthly", Percent: 8 }] }).map((w) => w.label)).toEqual(["近一月"]);

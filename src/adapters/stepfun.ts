@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { jsonOf, snippet } from "./request";
+import { jsonOf } from "./request";
+import { isRecord, snippet } from "./shared";
 import { toAmountText, withCurrencySymbol } from "../format";
 import type { ProviderAdapter, QuotaExtra, QuotaSnapshot } from "../types";
 
@@ -16,10 +17,6 @@ const USAGE_URL = "https://api.stepfun.com/v1/accounts";
 
 /** 计费类型展示值；未知类型不进 extras（避免硬编码翻译错误）。 */
 const BILLING_TYPES: Record<string, string> = { prepaid: "预付费", postpaid: "后付费" };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -53,7 +50,6 @@ export function parseAccountPayload(payload: unknown, now = Date.now()): QuotaSn
 export const stepFunAdapter: ProviderAdapter = {
 	id: "stepfun",
 	label: "StepFun",
-	credentialLabel: "API Key",
 	credentialHint: "阶跃星辰 API Key（与推理用同一把）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		// throw:false：401 等也要拿到响应体，错误里带状态码与片段。

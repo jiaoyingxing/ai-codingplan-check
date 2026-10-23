@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { firstSuccessful, jsonOf, snippet, type AttemptResult } from "./request";
+import { firstSuccessful, jsonOf, type AttemptResult } from "./request";
+import { clampPercent, isRecord, snippet } from "./shared";
 import type { ProviderAdapter, QuotaSnapshot, QuotaWindow } from "../types";
 
 // Kimi For Coding（上游现名 Kimi Code）额度接口契约（来源：官方仓库 MoonshotAI/kimi-code 的
@@ -46,10 +47,6 @@ interface Candidate {
 	resetsAt: number | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** 数值字段线上同时存在 number 与字符串两种形态（"100"）。 */
 function numberLike(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -58,10 +55,6 @@ function numberLike(value: unknown): number | undefined {
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 	return undefined;
-}
-
-function clampPercent(value: number): number {
-	return Math.min(100, Math.max(0, value));
 }
 
 /** ISO-8601（可带微秒）/ epoch 秒 / epoch 毫秒 → epoch ms。
@@ -225,7 +218,6 @@ async function fetchFrom(entry: (typeof BASES)[number], secret: string): Promise
 export const kimiAdapter: ProviderAdapter = {
 	id: "kimi-for-coding",
 	label: "Kimi For Coding",
-	credentialLabel: "API Key",
 	credentialHint: "Kimi Code 控制台创建的 API Key（sk-kimi-…；中国站 / 国际站均可）",
 	async fetchQuota(secret: string): Promise<QuotaSnapshot[]> {
 		const snapshot = await firstSuccessful(

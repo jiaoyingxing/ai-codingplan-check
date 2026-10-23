@@ -17,6 +17,26 @@ describe("secret-crypto", () => {
 		}
 	});
 
+	it("解密按 blob 的 iterations 派生：iterations=1000 固定向量可解", async () => {
+		// 由 Node WebCrypto 生成的固定向量（PBKDF2-SHA256 × 1000，固定 salt/iv）：
+		// 若解密写死 310k 迭代，这里必然失败——证明派生参数来自 blob。
+		const blob =
+			'{"v":1,"kdf":"PBKDF2-SHA256","iterations":1000,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","ct":"qBGoVO9Ntqpmkazw1Xtxh0q921ftbmEGtoKUBtXFba8J8+s2"}';
+		await expect(decryptSecret(blob, "vector-passphrase")).resolves.toBe("vector-secret-向量");
+	});
+
+	it("iterations 被篡改时拒绝", async () => {
+		const parsed = JSON.parse(await encryptSecret("super-secret-key", PASSPHRASE)) as { iterations: unknown };
+		// 改成合法但不同的小值：格式通过，密钥不对 → 解密失败（若忽略 blob 参数则会错误地成功）。
+		parsed.iterations = 1;
+		await expect(decryptSecret(JSON.stringify(parsed), PASSPHRASE)).rejects.toThrow("decrypt failed");
+		// 非法值（非正整数 / 超上限 / 非数字）：按格式不支持拒绝。
+		for (const bad of [0, -1, 1.5, 10_000_001, "310000", null]) {
+			parsed.iterations = bad;
+			await expect(decryptSecret(JSON.stringify(parsed), PASSPHRASE)).rejects.toThrow("unsupported blob format");
+		}
+	});
+
 	it("同一明文两次加密密文不同（随机 salt/iv）", async () => {
 		const a = await encryptSecret("same-plain", PASSPHRASE);
 		const b = await encryptSecret("same-plain", PASSPHRASE);

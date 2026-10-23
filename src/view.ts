@@ -1,9 +1,12 @@
 import { ItemView, Menu, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
 import type AiCodingplanCheckPlugin from "./main";
+import { sortAccountRows } from "./account-sort";
 import { getAdapter } from "./adapters";
+import { formatErrorCode, splitErrorSegments } from "./error-format";
 import { formatPercent, formatResetCountdown } from "./format";
-import { decryptSecret } from "./secret-crypto";
+import { summarizeQuota } from "./quota-summary";
 import { STR } from "./strings";
+import { decryptSecret } from "./secret-crypto";
 import { MobileUnlockModal, describeError } from "./settings";
 import type { AccountRecord, QuotaSnapshot, SortDir, SortKey } from "./types";
 
@@ -13,32 +16,22 @@ function providerLabel(account: AccountRecord): string {
 	return getAdapter(account.provider)?.label ?? account.provider;
 }
 
-/** 行总用量口径（总额度 = 账单周期窗口，三家窗口序均为 …→月度/本期，取末位窗口）：
- *  每个计划取其末位窗口已用；多套餐（火山同凭证多订阅）以剩余额度最多为准，
- *  取该值最小的计划（用户拍板并实证：火山 Agent 月窗 35%，而非 5h 窗 0% 或周窗 100%）。 */
-function accountTotal(snapshots: QuotaSnapshot[]): number {
-	const planPercents = snapshots
-		.filter((s) => s.windows.length > 0)
-		.map((s) => s.windows[s.windows.length - 1].usedPercent);
-	if (planPercents.length === 0) return 0;
-	return Math.max(0, Math.min(...planPercents, 100));
-}
-
 /** 额度面板主页：固定左侧栏（EasySync 口径）。账号折叠列表——
- *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，口径见 accountTotal）；
+ *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，口径见 quota-summary）；
+ *  短窗口用尽时行尾只留时钟回退图标，末位总窗口满时照旧显示 100%；
  *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
  *  页动作在内容顶部 nav-header 固定工具行（刷新全部/排序 Menu/全部展开收起/打开设置），
  *  列表在 .qk-scroll 内独立滚动（桌面侧栏 app.css 隐藏 .view-header，addAction 不可见）；
- *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），快照缓存驱动额度/重置排序；
+ *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），共享快照缓存驱动额度/重置排序；
  *  排序选择持久化在 settings.sort（唯一状态源，本视图不另存副本）。 */
 export class QuotaView extends ItemView {
 	plugin: AiCodingplanCheckPlugin;
 	/** 账号折叠态（重绘与单账号刷新后保持；默认收起）。 */
 	private expanded = new Map<string, boolean>();
-	/** 已取回快照缓存（排序用；面板重绘不丢，单账号刷新覆盖）。 */
-	private cache = new Map<string, QuotaSnapshot[]>();
 	/** 行元素索引（排序时移动 DOM 节点用，不重建不重取）。 */
 	private rowEls = new Map<string, HTMLDetailsElement>();
+	/** 查询失败或额度用尽待刷新的账号：排序时恒沉到列表底部（用户拍板）。 */
+	private sinking = new Set<string>();
 	/** 展开/收起按钮引用：列表建好后与每次点击后按 DOM 重刷图标（EasySync collapseToggleButtonEl 口径）。 */
 	private collapseButtonEl: HTMLButtonElement | null = null;
 
@@ -81,6 +74,7 @@ export class QuotaView extends ItemView {
 		}
 		const list = page.createDiv("qk-list");
 		this.rowEls.clear();
+		this.sinking.clear();
 		for (const account of this.sortAccounts(accounts)) {
 			// 一凭证多套餐（如方舟双订阅）→ fetchQuota 返回多份快照、展开体内分段渲染。
 			const details = list.createEl("details", "qk-account qk-card");
@@ -149,33 +143,25 @@ export class QuotaView extends ItemView {
 		summary.createDiv("qk-row-pct");
 	}
 
-	/** 排序：套餐名按本地化比较；额度/重置时间用缓存快照，无数据账号恒排末尾。返回新数组不改设置原序。 */
+	/** 排序：异常账号（查询失败 / 额度用尽待刷新）恒沉底；正常账号组内按套餐名或缓存快照排序。
+	 *  返回新数组不改设置原序；沉底标记由渲染态维护，取数完成后随 applySort 生效。 */
 	private sortAccounts(accounts: AccountRecord[]): AccountRecord[] {
 		const { key, dir } = this.plugin.settings.sort;
-		const sign = dir === "asc" ? 1 : -1;
-		return [...accounts].sort((a, b) => {
-			if (key === "provider") {
-				return sign * providerLabel(a).localeCompare(providerLabel(b), "zh");
-			}
-			const va = this.sortMetric(a);
-			const vb = this.sortMetric(b);
-			if (va === null && vb === null) return 0;
-			if (va === null) return 1;
-			if (vb === null) return -1;
-			return sign * (va - vb);
+		return sortAccountRows(accounts, {
+			key,
+			dir,
+			sinking: (account) => this.sinking.has(account.id),
+			labelOf: providerLabel,
+			metricOf: (account) => this.sortMetric(account),
 		});
 	}
 
 	private sortMetric(account: AccountRecord): number | null {
-		const snapshots = this.cache.get(account.id);
+		const snapshots = this.plugin.quotaStore.get(account.id);
 		if (!snapshots || snapshots.length === 0) return null;
 		if (this.plugin.settings.sort.key === "usage") {
-			// 余额型（§v1.2 裁决⑤）：无窗口快照不计 0%（原 accountTotal 会返回 0 参与排序），
-			// 按既有"无数据恒排末尾"规则处理；不新增排序选项。
-			const planPercents = snapshots
-				.filter((snapshot) => snapshot.windows.length > 0)
-				.map((snapshot) => snapshot.windows[snapshot.windows.length - 1].usedPercent);
-			return planPercents.length === 0 ? null : Math.max(0, Math.min(...planPercents, 100));
+			// 余额型（§v1.2 裁决⑤）：total 为 null 时按"无数据恒排末尾"，不参与 0% 排序。
+			return summarizeQuota(snapshots).total;
 		}
 		const resets = snapshots
 			.flatMap((s) => s.windows.map((w) => w.resetsAt))
@@ -233,9 +219,12 @@ export class QuotaView extends ItemView {
 	}
 
 	private async fetchAndRender(account: AccountRecord, details: HTMLDetailsElement, body: HTMLElement): Promise<void> {
-		const adapter = getAdapter(account.provider);
-		if (!adapter) return;
 		let secret = this.app.secretStorage.getSecret(account.secretId);
+		// 同步可能晚于插件启动：内存里没有副本时先从磁盘补读一次（只填空、不写盘），
+		// 否则接收设备会把"尚未同步到"当成"没有可还原副本"而不弹口令框。
+		if (!secret && !account.encSecret) {
+			account.encSecret = await this.plugin.refreshAccountCopy(account.id);
+		}
 		// 移动端回退（用户拍板 20260920）：本地保险箱无值但 data.json 有密文副本 → 口令解锁；
 		// 解出即写入本地 SecretStorage，本次会话与他账号免再输；口令不对/密文损坏走错误行可重试。
 		if (!secret && account.encSecret) {
@@ -256,20 +245,60 @@ export class QuotaView extends ItemView {
 			this.renderErrorBody(body, `${account.alias}：${STR.secretMissing}`, account);
 			return;
 		}
+		// 发起加载前同步捕获代数号：加载期间账号被删除/重新启用或向导回写，返回结果即过期。
+		const generation = this.plugin.quotaStore.generation(account.id);
 		try {
-			const snapshots = await adapter.fetchQuota(secret);
-			this.cache.set(account.id, snapshots);
+			// 共享缓存（§v1.3）：面板取数、向导测通回写与账号删除/重新启用时的失效共用一份缓存，
+			// 同账号并发请求复用。
+			const snapshots = await this.plugin.quotaStore.load(account, secret);
+			// 迟到响应守卫：过期结果直接丢弃，不渲染旧读数（缓存回写同样已被 store 挡住）。
+			if (!this.plugin.quotaStore.isCurrentGeneration(account.id, generation)) {
+				// 只回渲染当前缓存（如向导测通 put 的新快照），过期结果绝不使用；无缓存则保持原状。
+				const current = this.plugin.quotaStore.get(account.id);
+				if (current) {
+					this.renderAccountBody(details, body, account, current);
+					this.applySort();
+				}
+				return;
+			}
 			this.renderAccountBody(details, body, account, snapshots);
 			this.applySort();
 		} catch (error) {
+			// 过期请求的错误同样不渲染：账号已删除/重新启用，或已有更新的数据。
+			if (!this.plugin.quotaStore.isCurrentGeneration(account.id, generation)) {
+				// 只回渲染当前缓存（如向导测通 put 的新快照），过期错误不显示；无缓存则保持原状。
+				const current = this.plugin.quotaStore.get(account.id);
+				if (current) {
+					this.renderAccountBody(details, body, account, current);
+					this.applySort();
+				}
+				return;
+			}
 			this.renderErrorBody(body, `${account.alias}：${STR.fetchFailedPrefix}（${describeError(error)}）`, account);
 		}
 	}
 
+	/** 失败/凭证缺失时，折叠行只留一个图标（用户拍板），原因进 tooltip；填充条归零。 */
 	private renderErrorBody(body: HTMLElement, message: string, account: AccountRecord): void {
+		const details = body.closest<HTMLDetailsElement>("details.qk-account");
+		const rowPct = details?.querySelector<HTMLElement>(".qk-row-pct");
+		if (rowPct) {
+			this.resetRowAnchor(rowPct);
+			rowPct.addClass("qk-row-error");
+			const icon = rowPct.createSpan({ cls: "qk-row-error-icon" });
+			setIcon(icon, "triangle-alert");
+			rowPct.setAttribute("aria-label", message);
+			rowPct.setAttribute("title", message);
+		}
+		// 查询失败 / 凭证错误同样归入"不可用"：行外侧总量条整条灰化，不再留空条。
+		const rowFill = details?.querySelector<HTMLElement>(".qk-row-fill");
+		rowFill?.setCssStyles({ width: "100%" });
+		rowFill?.classList.add("qk-row-fill-muted");
 		body.empty();
 		const line = body.createDiv("qk-error-line");
-		line.createDiv({ text: message, cls: "qk-card-error-text" });
+		const msg = line.createDiv("qk-error-message");
+		// 行尾已有一个 triangle-alert 报错，展开体不再重复图标；机器细节单独标红。
+		this.renderErrorMessage(msg, message);
 		line.appendChild(
 			this.createRefreshIcon(() => {
 				body.empty();
@@ -277,6 +306,20 @@ export class QuotaView extends ItemView {
 				void this.fetchAndRenderByCard(body, account);
 			}),
 		);
+		this.sinking.add(account.id);
+		this.applySort();
+	}
+
+	/** 错误正文整篇红色（用户拍板，与上个发布版一致）；HTTP/code/厂商原始响应另用等宽小字。 */
+	private renderErrorMessage(container: HTMLElement, message: string): void {
+		const text = container.createDiv("qk-card-error-text");
+		for (const segment of splitErrorSegments(message)) {
+			if (segment.code) {
+				text.createSpan({ text: formatErrorCode(segment.text), cls: "qk-error-code" });
+			} else {
+				text.appendText(segment.text);
+			}
+		}
 	}
 
 	/** 从行内元素反查所属 details 后重取（错误态/单账号刷新共用路径）。 */
@@ -285,6 +328,9 @@ export class QuotaView extends ItemView {
 		if (!details) return;
 		const body = details.querySelector<HTMLElement>(".qk-account-body");
 		if (!body) return;
+		// 仅错误态重试时清掉行尾警示；正常账号手动刷新保留当前读数，避免闪空。
+		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
+		if (rowPct?.hasClass("qk-row-error")) this.resetRowAnchor(rowPct);
 		body.empty();
 		body.createDiv({ text: STR.loading, cls: "qk-card-loading" });
 		void this.fetchAndRender(account, details, body);
@@ -297,20 +343,42 @@ export class QuotaView extends ItemView {
 		snapshots: QuotaSnapshot[],
 	): void {
 		body.empty();
-		if (snapshots.length === 0) return;
-		// 行背景总进度条 + 行尾总%锚点，口径见 accountTotal。
-		const total = accountTotal(snapshots);
+		if (snapshots.length === 0) {
+			// 适配器正常返回空集（极少见）：给可见状态，不让行尾与展开体停在空白。
+			this.renderErrorBody(body, `${account.alias}：${STR.meterNoData}`, account);
+			return;
+		}
+		const summary = summarizeQuota(snapshots);
+		// 额度用尽（总窗口 100% 或短窗口时钟态）：行外侧总量条改浅灰，并与查询失败一起沉底。
+		const blocked = summary.totalBlocked || Boolean(summary.shortBlocked);
+		if (blocked) this.sinking.add(account.id);
+		else this.sinking.delete(account.id);
+		// 折叠行信息减负（§v1.3）：末位总窗口满 → 100%；只有短窗口满 → 仅时钟图标；否则总额度/余额。
+		const total = summary.totalBlocked ? 100 : (summary.total ?? 0);
 		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
 		rowFill?.setCssStyles({ width: `${formatPercent(total)}%` });
+		rowFill?.classList.toggle("qk-row-fill-muted", blocked);
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct) {
-			// 单账号刷新会重复进入本方法：先清空旧行尾内容再重填，否则叠加显示。
-			rowPct.empty();
-			// 余额型（§v1.2）：无分母不画条（fill 恒 0），右锚槽位改显主币种金额；负余额红字（裁决③）。
-			const coreBalance = snapshots.find((snapshot) => snapshot.coreBalance)?.coreBalance;
-			if (coreBalance) {
-				const amountSpan = rowPct.createSpan({ text: coreBalance });
-				if (coreBalance.startsWith("-")) amountSpan.addClass("qk-neg");
+			// 单账号刷新会重复进入本方法：先清空旧行尾内容与态位再重填，否则叠加或残留 tooltip。
+			this.resetRowAnchor(rowPct);
+			if (summary.totalBlocked) {
+				// 月额/末位总窗口满：照旧显示 100%，不显示时钟图标。
+				rowPct.createSpan({ text: "100", cls: "qk-pct-num" });
+				rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
+			} else if (summary.shortBlocked) {
+				// 等待 5h/周刷新：只显示时钟回退图标，不报窗口与天数（tooltip 带原因）。
+				// 用户指定 rotate-ccw-clock；Obsidian 1.12 内置图标表未收录该名，history 是同一 lucide 字形。
+				rowPct.addClass("qk-row-blocked");
+				const icon = rowPct.createSpan({ cls: "qk-row-blocked-icon" });
+				setIcon(icon, "history");
+				const tooltip = `${summary.shortBlocked.label}${STR.windowUsedUp}`;
+				rowPct.setAttribute("aria-label", tooltip);
+				rowPct.setAttribute("title", tooltip);
+			} else if (summary.balance) {
+				// 余额型（§v1.2）：无分母不画条（fill 恒 0），右锚槽位改显主币种金额。
+				const amountSpan = rowPct.createSpan({ text: summary.balance });
+				if (summary.balance.startsWith("-")) amountSpan.addClass("qk-neg");
 			} else {
 				rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
 				rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
@@ -363,6 +431,15 @@ export class QuotaView extends ItemView {
 				if (reset) row.createDiv({ text: reset, cls: "qk-window-reset" });
 			}
 		}
+	}
+
+	/** 折叠行行尾锚点复位：清内容、态位与 tooltip（受限/错误/正常三态互斥）。 */
+	private resetRowAnchor(rowPct: HTMLElement): void {
+		rowPct.empty();
+		rowPct.removeClass("qk-row-blocked");
+		rowPct.removeClass("qk-row-error");
+		rowPct.removeAttribute("aria-label");
+		rowPct.removeAttribute("title");
 	}
 
 	/** 单账号刷新图标（原生 clickable-icon + lucide，aria-label 与 tooltip 双报）。 */
