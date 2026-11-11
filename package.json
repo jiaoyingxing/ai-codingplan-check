@@ -1,6 +1,6 @@
 {
   "name": "ai-codingplan-check",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI CodingPlan Check / AI编程套餐查询 — 聚合查询 OpenCode Go、Command Code、火山方舟、智谱 GLM、Kimi、MiniMax、DeepSeek、硅基流动、Moonshot、StepFun、PPIO、小米 MiMo 等服务的套餐用量与按量余额",
   "main": "main.js",
   "scripts": {

@@ -108,4 +108,29 @@ describe("QuotaStore", () => {
 		expect(store.isCurrentGeneration(ACCOUNT.id, generation)).toBe(true);
 		expect(store.get(ACCOUNT.id)).toBe(SNAPSHOTS);
 	});
+
+	it("onLoad：成功且代数未变时回调（§v1.13 周期存档挂点）", async () => {
+		const onLoad = vi.fn();
+		const store = new QuotaStore(async () => SNAPSHOTS, onLoad);
+		await store.load(ACCOUNT, "sk-1");
+		expect(onLoad).toHaveBeenCalledTimes(1);
+		expect(onLoad).toHaveBeenCalledWith(ACCOUNT, SNAPSHOTS);
+	});
+
+	it("onLoad：迟到的旧响应不回调，put 路径也不回调", async () => {
+		let resolve!: (value: QuotaSnapshot[]) => void;
+		const onLoad = vi.fn();
+		const store = new QuotaStore(
+			() =>
+				new Promise<QuotaSnapshot[]>((done) => {
+					resolve = done;
+				}),
+			onLoad,
+		);
+		const pending = store.load(ACCOUNT, "sk-1");
+		store.put(ACCOUNT.id, SNAPSHOTS);
+		resolve(SNAPSHOTS);
+		await expect(pending).resolves.toBe(SNAPSHOTS);
+		expect(onLoad).not.toHaveBeenCalled();
+	});
 });

@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { requestUrl } from "obsidian";
 import {
+	commandCodeAdapter,
 	composeQuotaSnapshot,
 	parseCreditsInfo,
 	parseSubscriptionInfo,
@@ -8,8 +10,24 @@ import {
 } from "../src/adapters/commandcode";
 
 // obsidian npm 包是纯类型包（main 为空），运行时必须 mock；
-// 本文件只测纯解析逻辑，requestUrl 不会被调用。
+// 纯解析用例不会调用 requestUrl，fetchQuota 用例按 URL 路由响应。
 vi.mock("obsidian", () => ({ requestUrl: vi.fn() }));
+
+const mockedRequestUrl = vi.mocked(requestUrl);
+
+function respond(body: unknown, status = 200) {
+	return {
+		status,
+		text: typeof body === "string" ? body : JSON.stringify(body),
+		json: body,
+		headers: {},
+		arrayBuffer: new ArrayBuffer(0),
+	} as unknown as Awaited<ReturnType<typeof requestUrl>>;
+}
+
+beforeEach(() => {
+	mockedRequestUrl.mockReset();
+});
 
 describe("commandcode parseWhoamiAccount", () => {
 	it("org 优先取 login/id；无 org 时回落 user", () => {
@@ -92,6 +110,7 @@ describe("composeQuotaSnapshot", () => {
 		expect(snap!.windows[0]!.rateLimited).toBe(false);
 		expect(snap!.windows[0]!.resetsAt).toBe(periodEnd);
 		expect(snap!.planName).toBe("individual-goat");
+		expect(snap!.planPeriodEnd).toBe(periodEnd);
 		expect(snap!.extras.map((e) => e.label)).toEqual(["余额", "本期费用", "本期请求", "剩余天数"]);
 	});
 
@@ -131,5 +150,72 @@ describe("composeQuotaSnapshot", () => {
 
 	it("三段全空 → null", () => {
 		expect(composeQuotaSnapshot(null, null, null)).toBeNull();
+	});
+
+	it("订阅接口确认无订阅：展开体标注状态，快照带不可用原因", () => {
+		const snap = composeQuotaSnapshot(null, null, { totalCost: 67.503, totalCount: 22038 }, 1_790_000_000_000, true);
+		expect(snap!.windows).toEqual([]);
+		expect(snap!.extras).toEqual([
+			{ label: "订阅状态", value: "暂未订阅" },
+			{ label: "本期费用", value: "$67.50" },
+			{ label: "本期请求", value: "22038" },
+		]);
+		expect(snap!.unavailableReason).toBe("暂未订阅");
+		expect(snap!.planPeriodEnd).toBeUndefined();
+	});
+
+	it("订阅结果未知（请求失败或结构不明）时不下无订阅结论", () => {
+		const snap = composeQuotaSnapshot(null, null, { totalCost: 1, totalCount: 1 }, 1_790_000_000_000, false);
+		expect(snap!.extras.map((e) => e.label)).toEqual(["本期费用", "本期请求"]);
+		expect(snap!.unavailableReason).toBeUndefined();
+	});
+
+	it("订阅在场但接口没给周期结束时刻时，planPeriodEnd 缺省不硬造", () => {
+		const snap = composeQuotaSnapshot(
+			{ monthly: 1, remaining: 1, windows: [] },
+			{ planId: "individual-go", periodStartMs: null, periodEndMs: null },
+			{ totalCost: 1, totalCount: 1 },
+		);
+		expect(snap!.planPeriodEnd).toBeUndefined();
+	});
+});
+
+describe("commandCodeAdapter.fetchQuota 无订阅判定", () => {
+	function arrange(subscriptionBody: unknown, subscriptionStatus = 200) {
+		mockedRequestUrl.mockImplementation(async (request) => {
+			const url = request.url;
+			if (url.endsWith("/alpha/whoami")) return respond({ user: { userName: "u" } });
+			if (url.includes("/alpha/billing/credits")) {
+				return respond({
+					credits: { monthlyCredits: 0, purchasedCredits: 0, freeCredits: 0 },
+					windowLimits: {},
+				});
+			}
+			if (url.includes("/alpha/billing/subscriptions")) {
+				return respond(subscriptionBody, subscriptionStatus);
+			}
+			if (url.includes("/alpha/usage/summary")) {
+				return respond({ totalCost: 67.5, totalCount: 22038 });
+			}
+			throw new Error(`unexpected request: ${url}`);
+		});
+	}
+
+	it("订阅接口成功返回 data:null：快照进入暂未订阅态", async () => {
+		arrange({ success: true, data: null });
+		const [snap] = await commandCodeAdapter.fetchQuota("key");
+		expect(snap!.unavailableReason).toBe("暂未订阅");
+		expect(snap!.extras).toEqual([
+			{ label: "订阅状态", value: "暂未订阅" },
+			{ label: "本期费用", value: "$67.50" },
+			{ label: "本期请求", value: "22038" },
+		]);
+	});
+
+	it("订阅接口失败：只展示拿到的用量，不误报暂未订阅", async () => {
+		arrange({ success: false }, 500);
+		const [snap] = await commandCodeAdapter.fetchQuota("key");
+		expect(snap!.unavailableReason).toBeUndefined();
+		expect(snap!.extras.map((e) => e.label)).toEqual(["本期费用", "本期请求"]);
 	});
 });

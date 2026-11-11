@@ -26,6 +26,9 @@ export const STR = {
 	capturedAt: "更新",
 	accountsTitle: "已接入账号",
 	addAccount: "添加账号",
+	// 账号筛选下拉（20261105）：选项随已有账号的套餐来源即时生成，「全部」为默认值。
+	filterAll: "全部",
+	filterTooltip: "按套餐来源筛选",
 	accountEmpty: "暂无账号。点击「添加账号」接入第一个套餐。",
 	delete: "删除",
 	wizardTitle: "添加账号",
@@ -51,6 +54,7 @@ export const STR = {
 	exportDescOff:
 		"开启后，各账号凭证会加密成副本随插件数据保存，其他设备打开同一库时，在面板首次查看输入口令即可还原；凭证本体仍受系统安全保护，不会直接复制。",
 	exportDescOn: "已开启：{n} 个账号的加密副本随插件数据保存，其他设备打开同一库即可还原。",
+	exportDescReceive: "本机为接收方",
 	exportPassName: "导出口令",
 	exportPassDesc: "更换口令或新增账号后，点「更新副本」重新生成全部加密副本；口令本身不保存，遗忘后需重新导出。",
 	exportPlaceholder: "至少 8 位",
@@ -68,4 +72,5 @@ export const STR = {
 	unlockName: "导出口令",
 	unlockDesc: "解锁后本次使用期间不再询问",
 	unlockConfirm: "解锁",
+	unlockCancelled: "已取消解锁",
 } as const;

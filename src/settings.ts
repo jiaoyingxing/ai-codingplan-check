@@ -6,6 +6,9 @@ import type { AccountRecord, ProviderAdapter, ProviderId, QuotaSnapshot } from "
 
 export class QuotaSettingTab extends PluginSettingTab {
 	plugin: AiCodingplanCheckPlugin;
+	/** 服务商筛选（20261105 用户拍板）：临时视图态——只在设置页打开期间有效，
+	 *  hide() 即清零、不入 data.json；选项=已有账号的套餐来源，默认「全部」。 */
+	private providerFilter: ProviderId | "all" = "all";
 	private accountGroup: SettingGroup | null = null;
 	/** 凭证导出组：开关/更新副本后局部重绘只清 listEl 重建行，不叠组、不动整页。 */
 	private syncGroup: SettingGroup | null = null;
@@ -19,12 +22,26 @@ export class QuotaSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		// 回落轨每次进入设置页都重建；顺带清筛选兜底（hide 已清，双保险）。
+		this.providerFilter = "all";
 		containerEl.empty();
 		// SettingGroup（1.11.0+）：宽模块分组节奏；列表区局部重绘不整页重建。
+		// mod-list（宿主 1.13+ 官方列表样式）：窄开关（桌面 34×19）+ 紧凑行高与组内边距，
+		// 与宿主「页面预览」等设置页同款；移动端仍按宿主规则放大。
 		// 账号组无外侧标题（用户拍板 20260920）：首行内部标题即身份，避免顶部重复一层。
-		this.accountGroup = new SettingGroup(containerEl);
+		this.accountGroup = new SettingGroup(containerEl).addClass("mod-list");
 		this.renderAccounts();
 		this.renderMobileSync();
+	}
+
+	/** 退出设置页（切走或关闭）即清筛选（20261105 拍板：不长期保持）；宿主在设置页不可见时调用。 */
+	override hide(): void {
+		super.hide();
+		this.providerFilter = "all";
+		// 声明式轨道宿主再进入时只重渲染已捕获的 settingItems，不重取定义——
+		// hide 清了状态而定义没跟上，回来会停在筛选后的旧行（宿主 eval 实证）。
+		// 就地 update() 重取，让下次进入直接是「全部」；回落轨由 display() 重建兜底。
+		if (this.isDeclarativeTrack()) this.rerenderTrack();
 	}
 
 	/**
@@ -33,29 +50,40 @@ export class QuotaSettingTab extends PluginSettingTab {
 	 * 账号组（无外侧标题，同 20260920 拍板）＋凭证导出组；行文案全部取自
 	 * src/strings.ts（本仓红线：用户可见文案只改 strings）。条件行（口令行）
 	 * 随定义数组按当前状态出现/消失，状态变化经 update() 重估。
+	 * 账号组带 cls: "mod-list"：与回落轨 addClass("mod-list") 同口径，走宿主
+	 * 紧凑列表样式（桌面窄开关 + 窄行距；移动端由宿主规则自行放大）。
+	 * 凭证导出组保持常规组样式（用户只要求账号列表收窄，20261107 拍板）。
 	 */
 	override getSettingDefinitions(): SettingDefinitionItem[] {
 		const copiedCount = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
-		const exportEnabled = copiedCount > 0;
+		const exportEnabled = this.plugin.isExportDevice();
+		const visible = this.visibleAccounts();
+		// 声明式轨道宿主按 name 派生行键：同服务商多账号同名会触发 duplicate setting key，
+		// 且设置页切走再回来时重绘残缺（宿主 eval 实证）。同名行补零宽空格区分——视觉零变化、
+		// 搜索仍是子串匹配、trim 不吞（U+200B 属 Cf 不属空白）。回落轨无行键概念，用原名。
+		// 计数按 label（= 被发出的 name）而非 provider id：将来两家适配器共用 label 时同样不撞键。
+		const nameCounts = new Map<string, number>();
+		const rowNameOf = (account: AccountRecord): string => {
+			const label = getAdapter(account.provider)?.label ?? account.provider;
+			const suffix = "\u200B".repeat(nameCounts.get(label) ?? 0);
+			nameCounts.set(label, (nameCounts.get(label) ?? 0) + 1);
+			return label + suffix;
+		};
 		return [
 			{
 				type: "group",
+				cls: "mod-list",
 				items: [
 					{
 						name: STR.accountsTitle,
-						render: (setting) => {
-							setting.addButton((button) =>
-								button.setButtonText(STR.addAccount).setCta().onClick(() => {
-									this.plugin.openAccountWizard(() => this.refreshAccounts());
-								}),
-							);
-						},
+						render: (setting) => this.configureAccountToolbar(setting),
 					},
-					...(this.plugin.settings.accounts.length === 0
+					...(visible.length === 0
 						? [{ name: STR.accountEmpty }]
-						: this.plugin.settings.accounts.map((account) => ({
-							name: account.alias,
-							desc: getAdapter(account.provider)?.label ?? account.provider,
+						: visible.map((account) => ({
+							// 服务商为主行、别名为次要行（20261105 用户拍板，与旧口径互换）。
+							name: rowNameOf(account),
+							desc: account.alias,
 							render: (setting: Setting) => this.configureAccountRow(setting, account),
 						}))),
 				],
@@ -118,9 +146,12 @@ export class QuotaSettingTab extends PluginSettingTab {
 		this.renderMobileSync();
 	}
 
-	/** 开关行动态 desc（定义数组与回落 builder 共用，零文案漂移）。 */
-	private getExportToggleDesc(enabled: boolean, copiedCount: number): string {
-		return enabled ? STR.exportDescOn.replace("{n}", String(copiedCount)) : STR.exportDescOff;
+	/** 开关行动态 desc（定义数组与回落 builder 共用，零文案漂移）：
+	 *  开关表达本机角色——开启 = 导出方；未开启且有其他设备导出的副本 = 只留一个「接收方」状态标签。 */
+	private getExportToggleDesc(exportEnabled: boolean, copiedCount: number): string {
+		if (exportEnabled) return STR.exportDescOn.replace("{n}", String(copiedCount));
+		if (copiedCount > 0) return STR.exportDescReceive;
+		return STR.exportDescOff;
 	}
 
 	/** 凭证导出组（20260920 三次拍板：弃用「同步」一词）：独立模块带外侧标题；
@@ -128,13 +159,14 @@ export class QuotaSettingTab extends PluginSettingTab {
 	 *  行2 口令行仅在开启后出现，承接换口令与补副本。 */
 	private renderMobileSync(): void {
 		if (!this.syncGroup || !this.syncGroup.listEl.isConnected) {
+			// 凭证导出组保持常规组样式（用户只要求账号列表收窄）。
 			this.syncGroup = new SettingGroup(this.containerEl);
 		}
 		const group = this.syncGroup;
 		group.listEl.empty();
 		group.setHeading(STR.exportHeading);
 		const copiedCount = this.plugin.settings.accounts.filter((a) => a.encSecret).length;
-		const enabled = copiedCount > 0;
+		const enabled = this.plugin.isExportDevice();
 		group.addSetting((setting) => {
 			setting
 				.setName(STR.exportCopyName)
@@ -168,7 +200,7 @@ export class QuotaSettingTab extends PluginSettingTab {
 							new Notice(`${STR.fetchFailedPrefix}：${describeError(error)}`, 8000);
 						}
 					} else {
-						// 关闭可逆（重新输口令即恢复），无需确认。
+						// 关闭可逆（重新输口令即恢复），无需确认；所有设备条目一并降为接收方。
 						await this.plugin.setMobileSyncPassphrase(null);
 						new Notice(STR.exportDisabled);
 					}
@@ -215,15 +247,12 @@ export class QuotaSettingTab extends PluginSettingTab {
 		const group = this.accountGroup;
 		if (!group) return;
 		group.listEl.empty();
-		// 首行内部标题=性质描述（用户拍板 20260920：「已接入账号」），按钮自述动作，零重复。
+		// 首行内部标题=性质描述（用户拍板 20260920：「已接入账号」），控件自述动作，零重复。
 		group.addSetting((setting) => {
-			setting.setName(STR.accountsTitle).addButton((button) =>
-				button.setButtonText(STR.addAccount).setCta().onClick(() => {
-					this.plugin.openAccountWizard(() => this.refreshAccounts());
-				}),
-			);
+			setting.setName(STR.accountsTitle);
+			this.configureAccountToolbar(setting);
 		});
-		const accounts = this.plugin.settings.accounts;
+		const accounts = this.visibleAccounts();
 		if (accounts.length === 0) {
 			group.addSetting((setting) => {
 				setting.setName(STR.accountEmpty);
@@ -233,11 +262,47 @@ export class QuotaSettingTab extends PluginSettingTab {
 		for (const account of accounts) {
 			const adapter = getAdapter(account.provider);
 			group.addSetting((setting) => {
-				// 开关即状态显示，desc 只留厂商；控件顺序：编辑、删除、开关（用户拍板）。
-				setting.setName(account.alias).setDesc(adapter?.label ?? account.provider);
+				// 服务商为主行、别名为次要行（20261105 用户拍板）；开关即状态显示。
+				setting.setName(adapter?.label ?? account.provider).setDesc(account.alias);
 				this.configureAccountRow(setting, account);
 			});
 		}
+	}
+
+	/** 当前筛选下的可见账号：筛选的来源已不在账号里（如已被删光）时自动回「全部」。 */
+	private visibleAccounts(): AccountRecord[] {
+		const accounts = this.plugin.settings.accounts;
+		if (this.providerFilter !== "all" && !accounts.some((a) => a.provider === this.providerFilter)) {
+			this.providerFilter = "all";
+		}
+		return this.providerFilter === "all"
+			? accounts
+			: accounts.filter((a) => a.provider === this.providerFilter);
+	}
+
+	/** 首行控件（两轨共用）：筛选下拉在「添加账号」左侧（20261105 用户拍板）。
+	 *  无账号时不渲染下拉；选项随已有账号的套餐来源即时重建，值还原当前筛选。
+	 *  qk-account-toolbar 标记类：账号组虽走 mod-list 紧凑列表样式，但顶部按钮栏
+	 *  必须维持常规组行的内边距与对齐（用户 20261107 拍板），由 styles.css 还原。 */
+	private configureAccountToolbar(setting: Setting): void {
+		setting.settingEl.addClass("qk-account-toolbar");
+		const providers = [...new Set(this.plugin.settings.accounts.map((a) => a.provider))];
+		if (providers.length > 0) {
+			setting.addDropdown((dropdown) => {
+				dropdown.addOption("all", STR.filterAll);
+				for (const id of providers) dropdown.addOption(id, getAdapter(id)?.label ?? id);
+				dropdown.setValue(this.providerFilter).onChange((value) => {
+					this.providerFilter = value as ProviderId | "all";
+					this.refreshAccounts();
+				});
+				dropdown.selectEl.setAttribute("aria-label", STR.filterTooltip);
+			});
+		}
+		setting.addButton((button) =>
+			button.setButtonText(STR.addAccount).setCta().onClick(() => {
+				this.plugin.openAccountWizard(() => this.refreshAccounts());
+			}),
+		);
 	}
 
 	/** 账号行控件（两轨道共用；编辑、删除、开关顺序为用户拍板）。 */
@@ -414,11 +479,11 @@ export class AccountModal extends Modal {
 									};
 									this.app.secretStorage.setSecret(this.account.secretId, stored);
 								}
-								// 凭证变化：口令已知则重加密副本；未知则失效化（口令不可找回是特性），提示到设置重建。
+								// 凭证变化：导出方且本会话口令已知则重加密副本；未知则失效化并提示重建。
+								// 接收方只改本机凭证，不碰导出方的共享副本，也不额外提示。
 								if (this.account.encSecret !== undefined) {
-									if (this.plugin.sessionPassphrase) {
-										await this.plugin.refreshEncryptedSecret(this.account, stored);
-									} else {
+									const updated = await this.plugin.refreshEncryptedSecret(this.account, stored);
+									if (!updated && this.plugin.isExportDevice()) {
 										delete this.account.encSecret;
 										new Notice(STR.exportStale, 6000);
 									}

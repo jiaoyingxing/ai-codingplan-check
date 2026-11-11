@@ -1,7 +1,7 @@
 {
 	"id": "ai-codingplan-check",
 	"name": "AI CodingPlan Check",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"minAppVersion": "1.11.4",
 	"description": "一站式查询多家 AI 编程平台的套餐余额与用量，支持多账号管理。Check plan balances and usage for multiple AI coding platforms in one place, with multi-account support.",
 	"author": "Jiao Yingxing",

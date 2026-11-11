@@ -118,3 +118,36 @@ describe("summarizeQuota 折叠行阻断判断", () => {
 		expect(summary.shortBlocked).toBeNull();
 	});
 });
+
+describe("summarizeQuota 不可用态", () => {
+	it("无窗口、无核心余额且数据源标记原因：整行进入不可用态", () => {
+		const summary = summarizeQuota([
+			snapshotOf([], { unavailableReason: "暂未订阅" }),
+		]);
+		expect(summary.total).toBeNull();
+		expect(summary.balance).toBeNull();
+		expect(summary.unavailableReason).toBe("暂未订阅");
+	});
+
+	it("没有任何不可用标记时保持 null，不把普通空数据误判为不可用", () => {
+		const summary = summarizeQuota([snapshotOf([])]);
+		expect(summary.unavailableReason).toBeNull();
+	});
+
+	it("多套餐里只要还有可用读数，整行不进入不可用态", () => {
+		const summary = summarizeQuota([
+			snapshotOf([], { unavailableReason: "暂未订阅" }),
+			snapshotOf([windowOf("monthly", "近一月", 30, NOW + DAY)]),
+		]);
+		expect(summary.total).toBe(30);
+		expect(summary.unavailableReason).toBeNull();
+	});
+
+	it("核心余额存在时同样不算不可用", () => {
+		const summary = summarizeQuota([
+			snapshotOf([], { coreBalance: "¥0.00", unavailableReason: "暂未订阅" }),
+		]);
+		expect(summary.balance).toBe("¥0.00");
+		expect(summary.unavailableReason).toBeNull();
+	});
+});

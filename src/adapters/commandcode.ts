@@ -9,6 +9,7 @@ import type { ProviderAdapter, QuotaExtra, QuotaSnapshot, QuotaWindow } from "..
 //   GET /alpha/billing/credits?orgId=          → {credits:{monthlyCredits,purchasedCredits,freeCredits},
 //                                                 windowLimits:{fiveHour|weekly:{used,cap,resetAt}}}（单位 credits≈美元面额）
 //   GET /alpha/billing/subscriptions?orgId=    → {data:{planId,status,currentPeriodStart,currentPeriodEnd}}
+//                                                 data:null = 暂未订阅（订阅结束/未开通）；有值时 currentPeriodEnd 即周期结束时刻
 //   GET /alpha/usage/summary?orgId=&since=     → {totalCost,totalCount,totalTokens?}
 // 除 whoami 与 401/403 外，各段失败互不阻塞；窗口仅 5 小时与每周两条（无月窗口）。
 
@@ -166,6 +167,14 @@ export const commandCodeAdapter: ProviderAdapter = {
 			creditsRes && creditsRes.status < 400 ? parseCreditsInfo(creditsRes.json) : null;
 		const subscription =
 			subRes && subRes.status < 400 ? parseSubscriptionInfo(subRes.json) : null;
+		// 只把"接口成功且 data 明确为 null"视为暂未订阅；请求失败或结构不明时不下结论。
+		const noSubscription = Boolean(
+			subRes &&
+				subRes.status < 400 &&
+				isRecord(subRes.json) &&
+				subRes.json.success !== false &&
+				subRes.json.data === null,
+		);
 
 		const since = subscription?.periodStartMs
 			? `${orgParam ? "&" : "?"}since=${new Date(subscription.periodStartMs).toISOString()}`
@@ -174,7 +183,7 @@ export const commandCodeAdapter: ProviderAdapter = {
 		const summary =
 			summaryRes && summaryRes.status < 400 ? parseSummaryInfo(summaryRes.json) : null;
 
-		const snapshot = composeQuotaSnapshot(credits, subscription, summary);
+		const snapshot = composeQuotaSnapshot(credits, subscription, summary, Date.now(), noSubscription);
 		if (!snapshot) throw new Error("无任何可用额度数据（余额/订阅/用量均不可得）");
 		return [snapshot];
 	},
@@ -188,9 +197,13 @@ export function composeQuotaSnapshot(
 	subscription: CommandCodeSubscription | null,
 	summary: CommandCodeSummary | null,
 	now = Date.now(),
+	noSubscription = false,
 ): QuotaSnapshot | null {
 	if (!credits && !subscription && !summary) return null;
 	const extras: QuotaExtra[] = [];
+	// 订阅接口已明确返回无订阅：状态行让"没费用还是到期"在展开体里直接可读；
+	// 快照级不可用原因同时驱动折叠行的灰条 + 警示图标。
+	if (noSubscription) extras.push({ label: "订阅状态", value: "暂未订阅" });
 	if (credits) extras.push({ label: "余额", value: `$${credits.remaining.toFixed(2)}` });
 	if (summary?.totalCost != null) extras.push({ label: "本期费用", value: `$${summary.totalCost.toFixed(2)}` });
 	if (summary?.totalCount != null) extras.push({ label: "本期请求", value: `${summary.totalCount}` });
@@ -216,6 +229,9 @@ export function composeQuotaSnapshot(
 		planName: subscription?.planId ?? undefined,
 		windows,
 		extras,
+		unavailableReason: noSubscription ? "暂未订阅" : undefined,
+		// 订阅周期结束时刻（= 本期结束/续费日）供账号存档（§v1.13）；暂未订阅时无该值，存档保留旧档。
+		planPeriodEnd: subscription?.periodEndMs ?? undefined,
 		capturedAt: now,
 	};
 }

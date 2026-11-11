@@ -172,7 +172,14 @@ export const mimoAdapter: ProviderAdapter = {
 				resetsAt: detailParsed.periodEnd,
 				rateLimited: usageParsed.usedPercent >= 100,
 			};
-			snapshots.push({ planName: detailParsed.planName, windows: [window], extras, capturedAt: Date.now() });
+			// currentPeriodEnd 是套餐真实周期结束时刻（§v1.13 存档用）；接口没给时缺省，不拿别的字段充数。
+			snapshots.push({
+				planName: detailParsed.planName,
+				windows: [window],
+				extras,
+				...(detailParsed.periodEnd != null ? { planPeriodEnd: detailParsed.periodEnd } : {}),
+				capturedAt: Date.now(),
+			});
 		} else if (detailParsed && !usageParsed) {
 			throw new Error(`套餐用量响应无法解析（平台可能改版）：${snippet(usage.raw)}`);
 		}

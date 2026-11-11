@@ -11,7 +11,11 @@ export class QuotaStore {
 	private readonly inflight = new Map<string, Promise<QuotaSnapshot[]>>();
 	private readonly generations = new Map<string, number>();
 
-	constructor(private readonly fetchQuota: (account: AccountRecord, secret: string) => Promise<QuotaSnapshot[]>) {}
+	constructor(
+		private readonly fetchQuota: (account: AccountRecord, secret: string) => Promise<QuotaSnapshot[]>,
+		/** 成功且代数未变的读数回调（§v1.13 周期存档挂点）；抛错由调用方自行兜住，不影响查询结果。 */
+		private readonly onLoad?: (account: AccountRecord, snapshots: QuotaSnapshot[]) => void,
+	) {}
 
 	get(accountId: string): QuotaSnapshot[] | undefined {
 		return this.snapshots.get(accountId);
@@ -51,6 +55,7 @@ export class QuotaStore {
 			// 失败照旧向上抛出；成功仅在代数未变时回写，避免旧凭证结果覆盖新缓存。
 			if (this.isCurrentGeneration(account.id, generation)) {
 				this.snapshots.set(account.id, snapshots);
+				this.onLoad?.(account, snapshots);
 			}
 			return snapshots;
 		})();

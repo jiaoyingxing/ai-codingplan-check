@@ -205,8 +205,9 @@ details[open] > .qk-row .qk-collapse-icon {
 	height: var(--icon-m, 16px);
 }
 
-/* 查询失败/凭证缺失等特殊态：只留一个图标（用户拍板），原因进 tooltip。 */
-.qk-row-pct.qk-row-error {
+/* 查询失败/凭证缺失/暂未订阅等特殊态：只留一个图标（用户拍板），原因进 tooltip。 */
+.qk-row-pct.qk-row-error,
+.qk-row-pct.qk-row-unavailable {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-end;
@@ -214,13 +215,15 @@ details[open] > .qk-row .qk-collapse-icon {
 	font-size: var(--font-ui-smaller);
 }
 
-.qk-row-error-icon {
+.qk-row-error-icon,
+.qk-row-unavailable-icon {
 	display: inline-flex;
 	flex: none;
 	color: var(--text-muted);
 }
 
-.qk-row-error-icon svg {
+.qk-row-error-icon svg,
+.qk-row-unavailable-icon svg {
 	width: var(--icon-m, 16px);
 	height: var(--icon-m, 16px);
 }
@@ -398,4 +401,14 @@ details[open] > .qk-row .qk-collapse-icon {
    specificity 高于宿主隐藏规则，不需要 !important。宿主改版 ⇒ 回到纯文字。 */
 .vertical-tab-header-group-items[data-section="community-plugins"] .vertical-tab-nav-item[data-setting-id="ai-codingplan-check"] .vertical-tab-nav-item-icon {
 	display: flex;
+}
+
+/* 账号列表顶部按钮栏不受 mod-list 紧凑样式影响（用户 20261107 拍板）：
+   mod-list 把组内所有行的内边距收成 8px/16px 并垂直居中；按钮栏行
+   （qk-account-toolbar）恢复宿主默认的 --size-4-5 内边距与顶部对齐，
+   行内控件（筛选下拉、添加账号按钮）保持原尺寸。 */
+.setting-group.mod-list .setting-item.qk-account-toolbar {
+	--setting-items-padding-x: var(--size-4-5);
+	--setting-items-padding-y: var(--size-4-5);
+	align-items: flex-start;
 }

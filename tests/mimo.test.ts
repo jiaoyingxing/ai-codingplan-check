@@ -105,6 +105,7 @@ describe("mimoAdapter.fetchQuota", () => {
 			planName: "MiMo Pro",
 			windows: [{ key: "plan", label: "套餐周期", usedPercent: 25, resetsAt: Date.parse(PERIOD_END), rateLimited: false }],
 			extras: [{ label: "剩余额度", value: "3075.00 M Credits" }],
+			planPeriodEnd: Date.parse(PERIOD_END),
 		});
 		expect(snapshots[1]).toMatchObject({
 			coreBalance: "¥110.00",

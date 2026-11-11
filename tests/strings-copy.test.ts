@@ -33,4 +33,13 @@ describe("用户文案禁词与定稿口径", () => {
 		expect(text).toContain("开启导出");
 		expect(text).toContain("更新副本");
 	});
+
+	it("设备角色口径只留「接收方」一个状态标签", () => {
+		expect(text).toContain("接收方");
+	});
+
+	it("账号筛选下拉定稿口径（20261105）", () => {
+		expect(text).toContain("全部");
+		expect(text).toContain("按套餐来源筛选");
+	});
 });

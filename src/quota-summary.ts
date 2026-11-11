@@ -16,6 +16,8 @@ export interface QuotaSummary {
 	total: number | null;
 	/** 余额型核心余额（首个非空）。 */
 	balance: string | null;
+	/** 数据源明确标记无可用订阅 / 额度，且整行没有任何窗口或核心余额时的原因（折叠行不可用态）。 */
+	unavailableReason: string | null;
 }
 
 export function isWindowBlocked(window: Pick<QuotaWindow, "usedPercent" | "rateLimited">): boolean {
@@ -69,5 +71,10 @@ export function summarizeQuota(snapshots: QuotaSnapshot[]): QuotaSummary {
 	}
 
 	const balance = snapshots.find((snapshot) => snapshot.coreBalance)?.coreBalance ?? null;
-	return { totalBlocked, shortBlocked, total, balance };
+	// 只有整行确实没有任何可用读数时才进入不可用态：一凭证多套餐时，任一有效套餐仍按正常行展示。
+	const unavailableReason =
+		total === null && balance === null
+			? (snapshots.find((snapshot) => snapshot.unavailableReason)?.unavailableReason ?? null)
+			: null;
+	return { totalBlocked, shortBlocked, total, balance, unavailableReason };
 }

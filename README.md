@@ -71,7 +71,7 @@
 ## 3. 凭证与数据安全
 
 - 各家凭证明文只保存在 Obsidian 的系统安全存储中；插件数据文件只存账号别名与凭证指针，不存明文。
-- 可选「凭证导出」：开启后，各账号凭证会加密成副本随插件数据保存，其他设备打开同一库时，在面板首次查看输入口令即可还原；凭证本体仍受系统安全保护，不会直接复制。口令本身不保存、不进日志，遗忘后重新导出即可。
+- 可选「凭证导出」：开启后，各账号凭证会加密成副本随插件数据保存，其他设备打开同一库时，在面板首次查看输入口令即可还原；凭证本体仍受系统安全保护，不会直接复制。未开启导出的设备视为接收方：加密副本变化后，打开面板输入一次口令，就会把本机凭证更新为导出方的最新副本。口令本身不保存、不进日志，遗忘后重新导出即可。
 - 联网行为：仅在查询额度时（打开面板、手动刷新或添加账号验证连通）直连各家服务的官方接口；无遥测、无广告、无支付、不访问你的笔记与外部文件。涉及域名：`opencode.ai`、`api.commandcode.ai`、`open.volcengineapi.com`（Cookie 形态另用 `console.volcengine.com`）、智谱 `open.bigmodel.cn` / `api.z.ai`、Kimi `api.kimi.com` / `api.kimi.ai`、MiniMax `www.minimax.cn` / `api.minimaxi.com` / `www.minimax.io` / `api.minimax.io`、DeepSeek `api.deepseek.com`、硅基流动 `api.siliconflow.cn` / `api.siliconflow.com`（Cookie 形态另用 `account.siliconflow.cn` / `cloud.siliconflow.cn`）、Moonshot `api.moonshot.cn` / `api.moonshot.ai`、StepFun `api.stepfun.com`、PPIO `api.ppio.com` / `api.ppinfra.com`、小米 MiMo（Cookie）`platform.xiaomimimo.com`。
 
 ## 4. 已知限制

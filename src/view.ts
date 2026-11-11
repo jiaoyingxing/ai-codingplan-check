@@ -7,7 +7,7 @@ import { formatPercent, formatResetCountdown } from "./format";
 import { summarizeQuota } from "./quota-summary";
 import { STR } from "./strings";
 import { decryptSecret } from "./secret-crypto";
-import { MobileUnlockModal, describeError } from "./settings";
+import { describeError } from "./settings";
 import type { AccountRecord, QuotaSnapshot, SortDir, SortKey } from "./types";
 
 export const VIEW_TYPE_QUOTA_PANEL = "ai-codingplan-check-panel";
@@ -20,7 +20,7 @@ function providerLabel(account: AccountRecord): string {
  *  行 = 服务商名 + 灰别名 + 总用量%右锚（行背景即总进度条，口径见 quota-summary）；
  *  短窗口用尽时行尾只留时钟回退图标，末位总窗口满时照旧显示 100%；
  *  展开体 = 融合单行窗口（label | 高条内嵌% | 重置时间右）。
- *  页动作在内容顶部 nav-header 固定工具行（刷新全部/排序 Menu/全部展开收起/打开设置），
+ *  页动作在内容顶部 nav-header 固定工具行（刷新全部/打开设置/排序 Menu/全部展开收起），
  *  列表在 .qk-scroll 内独立滚动（桌面侧栏 app.css 隐藏 .view-header，addAction 不可见）；
  *  排序复用核心资源管理器模式（按钮 + Menu 弹框勾选），共享快照缓存驱动额度/重置排序；
  *  排序选择持久化在 settings.sort（唯一状态源，本视图不另存副本）。 */
@@ -34,6 +34,8 @@ export class QuotaView extends ItemView {
 	private sinking = new Set<string>();
 	/** 展开/收起按钮引用：列表建好后与每次点击后按 DOM 重刷图标（EasySync collapseToggleButtonEl 口径）。 */
 	private collapseButtonEl: HTMLButtonElement | null = null;
+	/** 本轮渲染共享的磁盘副本读取：整板只读一次，各账号 await 同一个 Promise。 */
+	private copySync: Promise<void> = Promise.resolve();
 
 	constructor(leaf: WorkspaceLeaf, plugin: AiCodingplanCheckPlugin) {
 		super(leaf);
@@ -66,6 +68,10 @@ export class QuotaView extends ItemView {
 		const { contentEl } = this;
 		contentEl.empty();
 		this.renderToolbar(contentEl);
+		// 先启动一次磁盘副本同步（接收方以磁盘为准、导出方只补空），各账号取数前共用。
+		this.copySync = this.plugin.syncCopiesFromDisk().catch((error) => {
+			console.warn("[ai-codingplan-check] 读取加密副本失败：", error);
+		});
 		const page = contentEl.createDiv("qk-scroll").createDiv("qk-page");
 		const accounts = this.plugin.settings.accounts.filter((account) => account.enabled);
 		if (accounts.length === 0) {
@@ -97,8 +103,8 @@ export class QuotaView extends ItemView {
 	private renderToolbar(container: HTMLElement): void {
 		const buttons = container.createDiv("nav-header").createDiv("nav-buttons-container");
 		this.createNavButton(buttons, "refresh-cw", STR.refreshAll, () => this.renderPanel());
-		this.createNavButton(buttons, "arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
 		this.createNavButton(buttons, "settings", STR.openSettings, () => this.plugin.openPluginSettings());
+		this.createNavButton(buttons, "arrow-up-narrow-wide", STR.sortBy, (evt) => this.showSortMenu(evt));
 		// 展开/收起固定最右（用户拍板）：设置按钮在其左侧。
 		this.collapseButtonEl = this.createNavButton(buttons, "chevrons-up-down", STR.expandAll, () => {
 			const items = Array.from(this.contentEl.querySelectorAll<HTMLDetailsElement>("details.qk-account"));
@@ -219,30 +225,37 @@ export class QuotaView extends ItemView {
 	}
 
 	private async fetchAndRender(account: AccountRecord, details: HTMLDetailsElement, body: HTMLElement): Promise<void> {
+		// 本轮渲染的磁盘副本读取（同步晚到/覆盖式更新都在这里收敛）。
+		await this.copySync;
 		let secret = this.app.secretStorage.getSecret(account.secretId);
-		// 同步可能晚于插件启动：内存里没有副本时先从磁盘补读一次（只填空、不写盘），
-		// 否则接收设备会把"尚未同步到"当成"没有可还原副本"而不弹口令框。
-		if (!secret && !account.encSecret) {
-			account.encSecret = await this.plugin.refreshAccountCopy(account.id);
-		}
-		// 移动端回退（用户拍板 20260920）：本地保险箱无值但 data.json 有密文副本 → 口令解锁；
-		// 解出即写入本地 SecretStorage，本次会话与他账号免再输；口令不对/密文损坏走错误行可重试。
-		if (!secret && account.encSecret) {
-			const passphrase =
-				this.plugin.sessionPassphrase ?? (await new MobileUnlockModal(this.app).awaitPassphrase());
+		// 覆盖式导入（用户拍板 20261105）：本机无明文，或本机是接收方且副本指纹变化时，
+		// 用共享口令框解出副本并覆盖本机 SecretStorage；导出方有明文时永不覆盖。
+		let unlockCancelled = false;
+		// 快照本次要处理的副本：口令框可能停留较久，期间其他渲染可能改掉 account.encSecret。
+		const copy = account.encSecret;
+		if (copy && (await this.plugin.needsCopyImport(account, Boolean(secret), copy))) {
+			const passphrase = await this.plugin.requestUnlockPassphrase();
 			if (passphrase) {
 				try {
-					secret = await decryptSecret(account.encSecret, passphrase);
-					this.app.secretStorage.setSecret(account.secretId, secret);
-					this.plugin.sessionPassphrase = passphrase;
+					secret = await decryptSecret(copy, passphrase);
 				} catch {
+					// 口令不对：清掉本会话口令，刷新后可重新输入（换过口令时不会一直卡在旧口令上）。
+					this.plugin.sessionPassphrase = null;
 					this.renderErrorBody(body, `${account.alias}：${STR.decryptFailed}`, account);
 					return;
 				}
+				this.app.secretStorage.setSecret(account.secretId, secret);
+				this.plugin.sessionPassphrase = passphrase;
+				await this.plugin.noteCopyImported(account, copy).catch((error) => {
+					console.warn("[ai-codingplan-check] 记录副本指纹失败：", error);
+				});
+			} else {
+				unlockCancelled = true;
 			}
 		}
 		if (!secret) {
-			this.renderErrorBody(body, `${account.alias}：${STR.secretMissing}`, account);
+			const reason = unlockCancelled ? STR.unlockCancelled : STR.secretMissing;
+			this.renderErrorBody(body, `${account.alias}：${reason}`, account);
 			return;
 		}
 		// 发起加载前同步捕获代数号：加载期间账号被删除/重新启用或向导回写，返回结果即过期。
@@ -328,6 +341,10 @@ export class QuotaView extends ItemView {
 		if (!details) return;
 		const body = details.querySelector<HTMLElement>(".qk-account-body");
 		if (!body) return;
+		// 单账号刷新也重读一次磁盘副本：其他设备刚更新副本时不用等整板刷新。
+		this.copySync = this.plugin.syncCopiesFromDisk().catch((error) => {
+			console.warn("[ai-codingplan-check] 读取加密副本失败：", error);
+		});
 		// 仅错误态重试时清掉行尾警示；正常账号手动刷新保留当前读数，避免闪空。
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct?.hasClass("qk-row-error")) this.resetRowAnchor(rowPct);
@@ -349,14 +366,15 @@ export class QuotaView extends ItemView {
 			return;
 		}
 		const summary = summarizeQuota(snapshots);
-		// 额度用尽（总窗口 100% 或短窗口时钟态）：行外侧总量条改浅灰，并与查询失败一起沉底。
-		const blocked = summary.totalBlocked || Boolean(summary.shortBlocked);
+		// 额度用尽（总窗口 100% / 短窗口时钟态）或数据源明确暂未订阅：行外侧总量条改浅灰，并与查询失败一起沉底。
+		const unavailable = summary.unavailableReason !== null;
+		const blocked = summary.totalBlocked || Boolean(summary.shortBlocked) || unavailable;
 		if (blocked) this.sinking.add(account.id);
 		else this.sinking.delete(account.id);
 		// 折叠行信息减负（§v1.3）：末位总窗口满 → 100%；只有短窗口满 → 仅时钟图标；否则总额度/余额。
 		const total = summary.totalBlocked ? 100 : (summary.total ?? 0);
 		const rowFill = details.querySelector<HTMLElement>(".qk-row-fill");
-		rowFill?.setCssStyles({ width: `${formatPercent(total)}%` });
+		rowFill?.setCssStyles({ width: `${unavailable ? 100 : formatPercent(total)}%` });
 		rowFill?.classList.toggle("qk-row-fill-muted", blocked);
 		const rowPct = details.querySelector<HTMLElement>(".qk-row-pct");
 		if (rowPct) {
@@ -379,6 +397,13 @@ export class QuotaView extends ItemView {
 				// 余额型（§v1.2）：无分母不画条（fill 恒 0），右锚槽位改显主币种金额。
 				const amountSpan = rowPct.createSpan({ text: summary.balance });
 				if (summary.balance.startsWith("-")) amountSpan.addClass("qk-neg");
+			} else if (summary.unavailableReason) {
+				// 数据源明确暂未订阅 / 额度（如 CC 订阅结束）：不显示会误导的 0%，只留警示图标，原因进 tooltip。
+				rowPct.addClass("qk-row-unavailable");
+				const icon = rowPct.createSpan({ cls: "qk-row-unavailable-icon" });
+				setIcon(icon, "triangle-alert");
+				rowPct.setAttribute("aria-label", summary.unavailableReason);
+				rowPct.setAttribute("title", summary.unavailableReason);
 			} else {
 				rowPct.createSpan({ text: formatPercent(total), cls: "qk-pct-num" });
 				rowPct.createSpan({ text: "%", cls: "qk-pct-unit" });
@@ -433,11 +458,12 @@ export class QuotaView extends ItemView {
 		}
 	}
 
-	/** 折叠行行尾锚点复位：清内容、态位与 tooltip（受限/错误/正常三态互斥）。 */
+	/** 折叠行行尾锚点复位：清内容、态位与 tooltip（受限/错误/不可用/正常四态互斥）。 */
 	private resetRowAnchor(rowPct: HTMLElement): void {
 		rowPct.empty();
 		rowPct.removeClass("qk-row-blocked");
 		rowPct.removeClass("qk-row-error");
+		rowPct.removeClass("qk-row-unavailable");
 		rowPct.removeAttribute("aria-label");
 		rowPct.removeAttribute("title");
 	}

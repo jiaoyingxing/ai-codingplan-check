@@ -27,6 +27,11 @@ export interface AccountRecord {
 	enabled: boolean;
 	/** 同步密文（src/secret-crypto.ts 自描述 JSON）；缺省 = 未启用移动端同步或副本已失效。 */
 	encSecret?: string;
+	/** 最后一次查询到的套餐周期存档（§v1.13，20261105 用户拍板先只存不显示）：
+	 *  订阅结束后厂商接口查不到历史周期（CC history/invoices 均 404），靠它回忆到期时间。
+	 *  只有数据源明确给出的周期结束时刻才存（现役 = Command Code / MiMo 的 currentPeriodEnd），
+	 *  滚动窗口重置时间不冒充到期日；重新订阅后由新周期覆盖。非凭证，随 data.json 同步。 */
+	lastPlan?: { name?: string; periodEnd: number; observedAt: number };
 }
 
 /** 一条额度窗口：各厂商共同的"已用百分比 + 重置时间"形状。 */
@@ -58,6 +63,12 @@ export interface QuotaSnapshot {
 	coreBalance?: string;
 	windows: QuotaWindow[];
 	extras: QuotaExtra[];
+	/** 数据源明确表示当前无可用订阅 / 额度时的原因（如 CC 暂未订阅）：
+	 *  展开体照常展示 extras，折叠行按不可用态灰条 + 警示图标处理；正常快照缺省。 */
+	unavailableReason?: string;
+	/** 数据源明确给出的订阅周期结束时刻（epoch ms，如 CC / MiMo 的 currentPeriodEnd）：
+	 *  供账号周期存档（§v1.13）；只有适配器能拿到真实值时才填，缺省 = 接口没有该字段。 */
+	planPeriodEnd?: number;
 	capturedAt: number;
 }
 
@@ -86,10 +97,27 @@ export interface SortMode {
 	dir: SortDir;
 }
 
+/** data.json 里的设备状态（多设备对账，20261105）：
+ *  id 只存在本机 localStorage，不随同步；每台设备只写自己的条目。
+ *  exportEnabled = 是否导出方；未开启导出即接收方。
+ *  imported 记录本机上次导入的副本指纹，用于「副本变化才导入」。
+ *  条目内不含任何凭证或口令。 */
+export interface DeviceRecord {
+	id: string;
+	exportEnabled: boolean;
+	/** 该设备最近一次生成副本的代次；多设备仲裁时以最大代次为当前导出方。 */
+	copyGeneration: number;
+	/** 账号 id → 副本指纹（SHA-256 截断），供接收方判断是否要覆盖导入。 */
+	imported: Record<string, string>;
+	updatedAt: number;
+}
+
 export interface PluginSettings {
 	accounts: AccountRecord[];
 	/** 列表排序选择（持久化：面板 Menu 一选即存，重启与面板关开沿用）。 */
 	sort: SortMode;
+	/** 多设备状态（设备角色与副本导入对账）；本机只更新自己的条目。 */
+	devices: DeviceRecord[];
 }
 
 export const DEFAULT_SORT: SortMode = { key: "provider", dir: "asc" };
@@ -97,6 +125,7 @@ export const DEFAULT_SORT: SortMode = { key: "provider", dir: "asc" };
 export const DEFAULT_SETTINGS: PluginSettings = {
 	accounts: [],
 	sort: { ...DEFAULT_SORT },
+	devices: [],
 };
 
 /** 收敛 data.json 里的排序：旧版本无此字段，也可能被手改成未知值——
@@ -110,7 +139,8 @@ export function normalizeSort(value: unknown): SortMode {
 
 /** 收敛 data.json 里的账号数组：手改坏字段或整体非数组时不崩面板。
  *  逐项只保留 id/provider/secretId 为非空字符串的记录；alias 非字符串回空串；
- *  enabled 缺省按启用（仅显式 false 视为停用）；encSecret 只留非空字符串；同 id 保留首个。
+ *  enabled 缺省按启用（仅显式 false 视为停用）；encSecret 只留非空字符串；同 id 保留首个；
+ *  lastPlan 只留 periodEnd 为正数的存档（§v1.13），坏形整份丢弃。
  *  provider 只要求非空字符串（UI 对未知来源已有兜底），不在此校验联合类型。 */
 export function normalizeAccounts(value: unknown): AccountRecord[] {
 	if (!Array.isArray(value)) return [];
@@ -135,7 +165,53 @@ export function normalizeAccounts(value: unknown): AccountRecord[] {
 		if (typeof candidate.encSecret === "string" && candidate.encSecret.length > 0) {
 			account.encSecret = candidate.encSecret;
 		}
+		const lastPlan = candidate.lastPlan as Record<string, unknown> | null | undefined;
+		if (typeof lastPlan === "object" && lastPlan !== null && typeof lastPlan.periodEnd === "number" && Number.isFinite(lastPlan.periodEnd) && lastPlan.periodEnd > 0) {
+			account.lastPlan = {
+				periodEnd: lastPlan.periodEnd,
+				observedAt: typeof lastPlan.observedAt === "number" && Number.isFinite(lastPlan.observedAt) ? lastPlan.observedAt : 0,
+				...(typeof lastPlan.name === "string" && lastPlan.name.length > 0 ? { name: lastPlan.name } : {}),
+			};
+		}
 		accounts.push(account);
 	}
 	return accounts;
+}
+
+/** 收敛 data.json 里的设备状态：非数组回空、坏条目丢弃、同 id 保留首个；
+ *  imported 只保留「账号 id → 非空字符串指纹」，其余字段给安全默认值。
+ *  这里不校验设备是否属于当前库——ID 只是随机标识，不影响凭证明文。 */
+export function normalizeDevices(value: unknown): DeviceRecord[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	const devices: DeviceRecord[] = [];
+	for (const item of value) {
+		if (typeof item !== "object" || item === null) continue;
+		const candidate = item as Record<string, unknown>;
+		const { id } = candidate;
+		if (typeof id !== "string" || id.length === 0) continue;
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const imported: Record<string, string> = {};
+		if (typeof candidate.imported === "object" && candidate.imported !== null) {
+			for (const [accountId, fingerprint] of Object.entries(candidate.imported)) {
+				if (typeof fingerprint === "string" && fingerprint.length > 0) {
+					imported[accountId] = fingerprint;
+				}
+			}
+		}
+		devices.push({
+			id,
+			exportEnabled: candidate.exportEnabled === true,
+			copyGeneration:
+				typeof candidate.copyGeneration === "number" &&
+				Number.isFinite(candidate.copyGeneration) &&
+				candidate.copyGeneration >= 0
+					? candidate.copyGeneration
+					: 0,
+			imported,
+			updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : 0,
+		});
+	}
+	return devices;
 }
